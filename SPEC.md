@@ -690,3 +690,10 @@ Verified by the owner on the phone: the button downloaded a newer version. Added
    seconds, `The download did not finish within 60 seconds. The connection may be slow. It may still finish in the
    background; press the button again in a minute.`
 A second press while a check runs is ignored.
+
+### 21.5 Ruling 2026-11-13 (owner): the suggestion bar is one thin row
+- The bar never wraps. One row: 12 px lead text, pills 24 px high with 13 px text and 9 px side padding, 6 px gaps,
+  3 px bar padding (total height about 30 px). When the pills do not fit, the row scrolls sideways (no scrollbar shown).
+- Each pill's tap area extends 6 px above and below the visible pill.
+- Lead text without an exact match is shortened to `No exact match. Did you mean:` (the typed text is visible in the
+  search box). This overrides the wrap, 36 px and 8 px values of 21.2.

@@ -90,7 +90,7 @@ function show(q) {
   console.log(`\n== ${q}  (${res.kind}, canon "${res.canon}", ${ms} ms, ranking ${ranking})`);
   // SPEC 21: the yellow bar line with its chips (spelling only, 21.3); the reason label in brackets
   if (res.suggestions && res.suggestions.length) {
-    console.log(`   ${res.anyExact ? 'Did you mean:' : `No exact match for "${res.typed}". Did you mean:`} ${res.suggestions.map((x) => `[${x.chip}]`).join(' ')}`);
+    console.log(`   ${res.anyExact ? 'Did you mean:' : 'No exact match. Did you mean:'} ${res.suggestions.map((x) => `[${x.chip}]`).join(' ')}`);
     console.log(`   chips: ${res.suggestions.map((x) => `${x.chip} (${x.label}; best ${x.head}${x.S !== null ? `, S ${x.S}` : ''})`).join(' | ')}`);
   }
   for (const g of res.groups) {

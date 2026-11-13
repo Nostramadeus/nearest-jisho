@@ -339,7 +339,7 @@ export function functionRowHtml(h) {
 export function suggestionBarHtml(r) {
   const list = (r && r.suggestions) || [];
   if (!list.length) return '';
-  const lead = r.anyExact ? 'Did you mean:' : `No exact match for "${r.typed}". Did you mean:`;
+  const lead = r.anyExact ? 'Did you mean:' : 'No exact match. Did you mean:'; // short: the typed text is in the search box
   return `<span class="dymtext">${esc(lead)}</span>` + list.map((x) => {
     const ja = x.side === 'ja' && /[^\x00-\x7f]/.test(x.chip); // a kana chip
     return `<button type="button" class="sugg" data-q="${esc(x.chip)}"${x.label ? ` title="${esc(x.label)}"` : ''}>` +
