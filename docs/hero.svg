@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 380" width="920" height="380" role="img" aria-label="Typing jihso: other dictionaries show no results, Nearest Jisho shows 辞書 (jisho), dictionary">
+  <defs>
+    <style>
+      .t { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; }
+      .j { font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", system-ui, sans-serif; }
+    </style>
+  </defs>
+  <rect width="920" height="380" rx="18" fill="#15171a"/>
+
+  <!-- left: other dictionaries -->
+  <text class="t" x="40" y="48" font-size="15" font-weight="700" fill="#9aa1ab" letter-spacing="1.2">OTHER DICTIONARIES</text>
+  <rect x="40" y="66" width="380" height="274" rx="12" fill="#1f2226" stroke="#33383f"/>
+  <rect x="58" y="84" width="344" height="46" rx="8" fill="#15171a" stroke="#4a515b" stroke-width="2"/>
+  <text class="t" x="74" y="114" font-size="21" fill="#e8eaed">jihso</text>
+  <rect x="130" y="95" width="2" height="25" fill="#9aa1ab"/>
+  <text class="t" x="230" y="212" font-size="44" text-anchor="middle" fill="#59606b">0 results</text>
+  <text class="t" x="230" y="248" font-size="16" text-anchor="middle" fill="#7c838d">Find the typo yourself.</text>
+  <text class="t" x="230" y="272" font-size="16" text-anchor="middle" fill="#7c838d">Fix it. Search again.</text>
+
+  <!-- arrow -->
+  <text class="t" x="460" y="212" font-size="34" text-anchor="middle" fill="#6cc490">→</text>
+
+  <!-- right: Nearest Jisho -->
+  <text class="t" x="500" y="48" font-size="15" font-weight="700" fill="#6cc490" letter-spacing="1.2">NEAREST JISHO</text>
+  <rect x="500" y="66" width="380" height="274" rx="12" fill="#1f2226" stroke="#6cc490" stroke-width="2"/>
+  <rect x="518" y="84" width="344" height="46" rx="8" fill="#15171a" stroke="#6cc490" stroke-width="2"/>
+  <text class="t" x="534" y="114" font-size="21" fill="#e8eaed">jihso</text>
+  <rect x="590" y="95" width="2" height="25" fill="#6cc490"/>
+  <rect x="518" y="142" width="344" height="34" rx="6" fill="#3a3214"/>
+  <text class="t" x="532" y="164" font-size="14" fill="#f0d98a">Nearest: <tspan font-weight="700">jisho</tspan> (letters swapped)</text>
+  <text class="j" x="532" y="212" font-size="14" fill="#6cc490">じしょ</text>
+  <text class="j" x="530" y="262" font-size="44" fill="#e8eaed">辞書</text>
+  <rect x="532" y="278" width="66" height="22" rx="4" fill="#22362b"/>
+  <text class="t" x="565" y="294" font-size="12" font-weight="700" text-anchor="middle" fill="#9fdcb6">common</text>
+  <text class="t" x="650" y="222" font-size="13" fill="#9aa1ab">Noun</text>
+  <text class="t" x="650" y="250" font-size="19" fill="#e8eaed">1. dictionary; lexicon</text>
+  <text class="j" x="650" y="282" font-size="14" fill="#c9cdd3"><tspan fill="#6cc490">辞書</tspan>で調べます。</text>
+  <text class="t" x="650" y="302" font-size="12" fill="#7c838d">I will look it up in the dictionary.</text>
+
+  <text class="t" x="460" y="366" font-size="13" text-anchor="middle" fill="#7c838d">Works offline · results as you type · English, kana, kanji or romaji</text>
+</svg>

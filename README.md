@@ -1,13 +1,46 @@
-# Nearest Jisho - Japanese Dictionary
+<h1 align="center">Nearest Jisho</h1>
 
-An offline Japanese-English dictionary that finds the word you meant even when you mistype it.
-Results appear while you type. Search in English, kana, kanji or romaji.
+<p align="center"><b>A Japanese dictionary that still finds the word when you mistype it.</b></p>
 
-- Typos are fine: `jihso` finds 辞書 (jisho) and says "letters swapped".
-- Long vowels and double letters are optional: `gakko` finds 学校 (gakkou), `shojo` finds 少女 (shoujo).
-- Verb and adjective forms lead to the dictionary form: `食べさせられた` finds 食べる.
-- Slang from JMdict and Wiktionary is shown with labels; names come from JMnedict; open a result for its full entry with every example and the kanji details; star words to keep them in Favorites.
-- Everything runs on the device. After the first visit the app works offline.
+<p align="center">
+  <img src="docs/hero.svg" alt="Typing jihso: other dictionaries show no results, Nearest Jisho shows 辞書 (jisho), dictionary" width="820">
+</p>
+
+<p align="center">
+  <a href="https://nostramadeus.github.io/nearest-jisho/"><b>Open in the browser</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/Nostramadeus/nearest-jisho/releases/latest"><b>Download for Android, Windows, Linux</b></a>
+</p>
+
+## Why I made this
+
+I look up Japanese words all day. With the dictionaries I used, one slip of the fingers was enough to get nothing:
+I typed `jihso` when I meant `jisho`, and the answer was zero results, or a list of unrelated words.
+Then I had to spot the typo, fix it and search again. Dozens of times a day.
+
+A dictionary knows every real word. It can work out which one I meant. So this one does.
+
+| You type | You get | What it understood |
+|---|---|---|
+| `jihso` | 辞書 (jisho), dictionary | two letters swapped |
+| `gakko` | 学校 (gakkou), school | long vowel left out |
+| `konichiwa` | こんにちは (konnichiwa), hello | double letter left out |
+| `tensia` | 天才 (tensai), genius | two letters swapped |
+| `dictonary` | 辞書, 辞典 | typo in the English word |
+| `たべた` | 食べる (taberu), to eat | past form of a verb |
+
+It never hides what you asked for: exact matches always come first, and near matches appear under a
+"Did you mean" line that says what was different.
+
+## What is inside
+
+- **Results while you type.** No search button. Type English, kana, kanji or romaji.
+- **Works offline.** Everything runs on your device. Nothing you type is sent anywhere.
+- **219,000 words, 743,000 names, 10,000 kanji**, plus slang, internet words and sound-effect words with clear labels.
+- **110,000 example sentences.** Open a word to see up to 25 real sentences, with the word highlighted in the form it takes.
+- **Favorites.** Star a word, copy your list into Anki or a spreadsheet.
+
+All data comes from free, open sources (JMdict, JMnedict, KANJIDIC2, Wiktionary, Tatoeba, jiten.moe). See [DATA-LICENSE.md](DATA-LICENSE.md).
 
 ## Download
 
