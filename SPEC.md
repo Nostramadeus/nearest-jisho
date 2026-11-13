@@ -476,3 +476,85 @@ installed app download the whole data set again (about 55 MB), although the dict
 - On `Only on Wi-Fi` when the connection is not Wi-Fi or ethernet: behave like `Ask each time` (show the bar)
   instead of skipping silently.
 - App-code updates (section 12) are unchanged and never ask.
+
+## 16. Settings as a view, smaller buttons, small credits (added 2026-11-13 after use on the phone)
+
+### 16.1 Settings is a view, like Favorites
+- `S.view` gains `settings`, address `#settings`. The settings content is shown INSTEAD of the results / entry /
+  Favorites (not above them). The search row and the update bar stay on top. Typing in the search box leaves the
+  view, as with Favorites. A direct visit to `#settings` works.
+- Favorites and Settings are mutually exclusive; at most one of the two buttons is active.
+- Gear click: in `settings` -> close; in `fav` -> switch to settings with `history.replaceState` (no new history
+  step); in `search` or `entry` -> `history.pushState` then show settings. Star click mirrors this exactly
+  (in `settings` -> switch to Favorites with `replaceState`).
+- Close = `history.back()` when the view was reached by a push from this session, else show the search view (same
+  rule as the Favorites toggle ruling in section 11). Therefore the browser Back button and the Android back gesture
+  close Settings or Favorites and return to the previous view and scroll position; they leave the app only from the
+  first view.
+- `aria-pressed` and titles follow the view: `Settings` / `Close Settings`, `Favorites` / `Close Favorites`.
+  `aria-expanded` on the gear is removed.
+
+### 16.2 Search row sizes
+- Star and gear: no border, no background box. Icon 22 px. Button box 40 px wide, 44 px high (the touch area), 2 px
+  gap between them, 6 px gap to the search box. Active state: icon in the accent colour plus a 2 px accent line under
+  the icon; inactive: dim icon colour; hover / focus-visible: accent colour.
+- Search box: takes all remaining width; height 48 px; font size 18 px below 600 px viewport width, 20 px from 600 px.
+  The clear button inside it keeps its 44x44 px touch area and 22 px icon.
+
+### 16.3 Credits footer
+- The data credits line (`Data: JMdict, JMnedict, KANJIDIC2 © EDRDG ...`) is set at 11 px, line height 1.4, dim
+  colour, one centred paragraph; links take the dim colour and are underlined only on hover / focus. The text and
+  the links do not change, and the line stays on every view (the licence asks for it on every screen).
+- The `Search Wikipedia for "<query>"` line keeps its current size (it is an action, not a credit).
+
+## 17. Words in a pasted text (added 2026-11-13)
+
+Goal: paste a phrase or a few sentences (彼方の空まで) and see every word in it (彼方, の, 空, まで) in reading order.
+No separate mode and no extra click: it is one more result group.
+
+### 17.1 When it appears
+- KANA and KANJI queries only (never LATIN), length 3 to 500 characters (code points) after trimming; longer input is
+  cut to 500 with the note `Only the first 500 characters are analysed.`
+- It appears when the query as a whole has NO tier-0 hit in the words or wikt pack (deinflected hits count as hits).
+  Then the group `Words in this text` is the FIRST group; the usual groups (prefix, contains, names) follow.
+- It is computed in phase "full" only, so typing stays instant.
+
+### 17.2 Splitting (`app/search/segment.js`, pure module, node + worker)
+Scan left to right. Characters that are not kana, kanji, 々 or ー are separators and are skipped.
+At position i try lengths L = min(12, rest) down to 1; `s` = that substring. `s` matches when, in this priority:
+1. `s` is an exact key in space `k` of the words pack, or (for kana `s`) its hiragana form is an exact kana form;
+2. deinflection (4.8) of `s` yields a verified words-pack record;
+3. `s` is an exact key in space `k` of the wikt pack;
+4. `s` is an exact key in space `k` of the names pack, L >= 2 — used only if no length >= 2 matched by rules 1-3 at i.
+A match of ONE kana character is accepted only when a matching record has a first-sense part of speech among
+`prt`, `aux`, `aux-v`, `cop`, `conj`, `int`. One kanji character matches normally.
+Take the largest L that matches (rule priority only breaks ties at the same L); continue at i + L.
+If nothing matches at i, the character joins an "unknown" run and the scan continues at i + 1.
+This is a greedy longest-match split; it has no look-ahead and can split a run of hiragana wrongly. That limit is
+accepted for this version and stated in the group's note line: `Split automatically; long kana runs can be wrong.`
+
+### 17.3 Choosing the record of a segment
+Among the records matched by the winning rule: a true written-form match before a deinflected one, then the usual
+rank (`opts.ranking`), then record id. The segment keeps the count of the other matching records.
+
+### 17.4 Display
+- Line 1: the text itself with every segment as a tappable chip (unknown runs as plain dim text, separators kept).
+  Tapping a chip scrolls to that segment's card and flashes its border once (no animation library; one CSS class
+  removed after 600 ms).
+- Then one item per segment in text order; a record already shown for an earlier segment is not repeated (its chip
+  still scrolls to the first card).
+  - Function words (the chosen record's first-sense part of speech is `prt`, `aux`, `aux-v`, `cop` or `conj`, and the
+    segment is at most 2 characters): ONE compact row: the segment, its reading, the part of speech in full words,
+    the first gloss. The row links to the entry page.
+  - Every other segment: the normal result card (with star, entry link, first example), plus, for deinflected
+    matches, the note line from 4.8, plus `N other entries for <segment>` as a link that puts the segment into the
+    search box, when N > 0.
+- At most 60 segments are rendered; beyond that the line `Showing the first 60 words.`
+- The match highlight (section 5) marks the segment text in the headword.
+
+### 17.5 Entry page: words that END with the headword
+- After "Words that start with <headword>" add "Words that end with <headword>": up to 20 words-pack records whose
+  written form ends with the headword (the record itself and records already listed under "start with" excluded),
+  ordered by the usual rank, same row format. Same omission rules as the "start with" section (no names, no
+  kana-only headwords, omitted when empty). Implementation: substring scan over the `k` keys string filtered to
+  keys that end with the headword, capped at 2,000 scanned hits before ranking.

@@ -36,8 +36,9 @@ const S = {
   groupLimits: {},
   loaded: {},
   lastResult: null,
-  view: 'search',  // 'search' | 'entry' | 'fav'
-  favPushed: false, // Favorites was opened with the button in this session (so history.back() closes it)
+  view: 'search',  // 'search' | 'entry' | 'fav' | 'settings'
+  // Favorites or Settings was reached by a push from this session (so history.back() closes it). SPEC 11, 16.1
+  panelPushed: false,
   favRemoved: new Map(), // rows clicked off during this visit of the Favorites view (shown greyed): key -> item
   entry: null,     // { w, r, p } of the open entry page
   entryReq: 0,
@@ -168,6 +169,7 @@ function route(ev) {
     return;
   }
   if (location.hash === '#fav') { if (S.view !== 'fav') showFavorites(); return; }
+  if (location.hash === '#settings') { if (S.view !== 'settings') showSettings(); return; }
   const wasEntry = S.view !== 'search';
   const q = readHash();
   if (wasEntry) showSearchView();
@@ -192,12 +194,17 @@ function openEntry(addr) {
   showEntry(addr);
 }
 
+const PANELS = ['fav', 'settings']; // the two button views; at most one is active (SPEC 16.1)
 function setView(v) {
-  if (S.view === 'fav' && v !== 'fav') { S.favRemoved.clear(); S.favPushed = false; } // greyed rows go away when the view is left
+  if (S.view === 'fav' && v !== 'fav') S.favRemoved.clear(); // greyed rows go away when the view is left
+  if (PANELS.includes(S.view) && !PANELS.includes(v)) S.panelPushed = false;
   S.view = v;
   searchViewEl.hidden = v !== 'search';
   entryEl.hidden = v !== 'entry';
   favViewEl.hidden = v !== 'fav';
+  settingsEl.hidden = v !== 'settings';
+  gearEl.setAttribute('aria-pressed', String(v === 'settings'));
+  gearEl.title = v === 'settings' ? 'Close Settings' : 'Settings';
   if (v !== 'entry') { entryEl.innerHTML = ''; S.entry = null; }
   if (v !== 'fav') favViewEl.innerHTML = '';
   if (v === 'fav') favBtnEl.setAttribute('aria-current', 'page'); else favBtnEl.removeAttribute('aria-current');
@@ -237,21 +244,36 @@ function showSearchView() {
   for (const b of resultsEl.querySelectorAll('.star')) b.setAttribute('aria-pressed', String(o.fav(b.dataset.w, b.dataset.r, b.dataset.p)));
 }
 
-// ---------- Favorites view (SPEC 11) ----------
-function openFavorites() {
-  // The Favorites button is a toggle: a second click returns to where the user was.
-  if (S.view === 'fav') { closeFavorites(); return; }
+// ---------- Favorites and Settings views (SPEC 11, 16.1) ----------
+const SHOW = { fav: () => showFavorites(), settings: () => showSettings() };
+/**
+ * Star and gear buttons. In view v: close. In the other button view: switch with replaceState (no new history
+ * step, so one Back still returns to where the user was before). In search or entry: pushState, then show v.
+ */
+function togglePanel(v) {
+  if (S.view === v) { closePanel(); return; }
+  if (PANELS.includes(S.view)) {
+    history.replaceState({ view: v }, '', `#${v}`);
+    SHOW[v]();
+    return;
+  }
   if (S.view === 'search') history.replaceState({ scroll: window.scrollY }, '', location.href);
-  history.pushState({ view: 'fav' }, '', '#fav');
-  S.favPushed = true;
-  showFavorites();
+  history.pushState({ view: v }, '', `#${v}`);
+  S.panelPushed = true;
+  SHOW[v]();
 }
-function closeFavorites() {
-  if (S.favPushed) { history.back(); return; } // opened with the button: Back restores the previous view and scroll
-  // opened by a direct visit to #fav: there is nothing to go back to, show the search view
+function closePanel() {
+  if (S.panelPushed) { history.back(); return; } // reached by a push: Back restores the previous view and scroll
+  // reached by a direct visit: there is nothing to go back to, show the search view
   showSearchView();
   history.replaceState(null, '', S.query ? `#q=${encodeURIComponent(S.query)}` : emptyAddress());
   if (!S.query.trim()) renderEmpty();
+}
+function openFavorites() { togglePanel('fav'); }
+function showSettings() {
+  setView('settings');
+  wikiEl.hidden = true;
+  window.scrollTo(0, 0);
 }
 function showFavorites() {
   setView('fav');
@@ -351,11 +373,7 @@ function applyTheme() {
   if (S.theme === 'auto') delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = S.theme;
 }
-gearEl.addEventListener('click', () => {
-  const open = settingsEl.hidden;
-  settingsEl.hidden = !open;
-  gearEl.setAttribute('aria-expanded', String(open));
-});
+gearEl.addEventListener('click', () => togglePanel('settings'));
 for (const r of document.querySelectorAll('input[name="ranking"]')) {
   r.checked = r.value === S.ranking;
   r.addEventListener('change', () => { S.ranking = r.value; store.set('nj-ranking', S.ranking); if (S.query) runSearch(); });
@@ -547,6 +565,7 @@ if (document.readyState === 'complete') showShellInfo(); else window.addEventLis
 const initialEntry = parseEntryHash(location.hash);
 if (initialEntry) { renderEmpty(); showEntry(initialEntry); } // shows the loading line until the pack is in
 else if (location.hash === '#fav') { renderEmpty(); showFavorites(); }
+else if (location.hash === '#settings') { renderEmpty(); showSettings(); }
 else {
   const initial = readHash();
   if (initial) { lastPushed = initial; setQuery(initial); } else renderEmpty();
