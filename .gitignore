@@ -1,0 +1,7 @@
+app/data/
+build/.cache/
+node_modules/
+BACKLOG.*
+AI-HANDOFF.md
+PROGRESS-*.md
+.secrets/

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nearest Jisho: look demo</title>
+<style>
+:root{--bg:#f4f5f7;--panel:#fff;--ink:#1c1e21;--dim:#6b7280;--line:#dfe2e7;--acc:#2f7d4f;--tag:#e8f3ec;--tagink:#22603b;--warn:#fff6d8;--warnink:#6b5200}
+@media (prefers-color-scheme:dark){:root{--bg:#15171a;--panel:#1f2226;--ink:#e8eaed;--dim:#9aa1ab;--line:#33383f;--acc:#6cc490;--tag:#22362b;--tagink:#9fdcb6;--warn:#3a3214;--warnink:#f0d98a}}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,"Segoe UI",sans-serif}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:16px;margin:28px 0 10px}
+p.note{color:var(--dim);margin:0 0 8px;max-width:70ch}
+.row{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+.frame{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.pc{width:640px;max-width:100%}
+.phone{width:320px;border-radius:22px;border-width:3px}
+.label{font-size:12px;color:var(--dim);margin:0 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.search{padding:10px;border-bottom:1px solid var(--line)}
+.search div{border:2px solid var(--acc);border-radius:8px;padding:8px 12px;font-size:17px}
+.dym{background:var(--warn);color:var(--warnink);padding:7px 12px;font-size:13px;border-bottom:1px solid var(--line)}
+.tag{display:inline-block;background:var(--tag);color:var(--tagink);border-radius:4px;padding:0 6px;font-size:11px;font-weight:600;margin-right:4px}
+.tag.g{background:transparent;border:1px solid var(--line);color:var(--dim)}
+.foot{padding:8px 12px;font-size:11px;color:var(--dim);border-top:1px solid var(--line)}
+/* Style A: cards */
+.A .card{display:flex;gap:18px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.A .word{min-width:120px}
+.A .kana{font-size:12px;color:var(--dim)}
+.A .kanji{font-size:32px;line-height:1.15}
+.A ol{margin:0;padding-left:20px}
+.A li{margin-bottom:2px}
+.A .pos{font-size:12px;color:var(--dim)}
+.phone.A .card{flex-direction:column;gap:6px;padding:12px}
+.phone.A .kanji{font-size:28px}
+/* Style B: compact rows */
+.B .r{display:flex;gap:10px;align-items:baseline;padding:8px 12px;border-bottom:1px solid var(--line)}
+.B .kanji{font-size:19px;white-space:nowrap}
+.B .kana{font-size:12px;color:var(--dim);white-space:nowrap}
+.B .gl{flex:1;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+.phone.B .r{flex-wrap:wrap;gap:2px 8px}
+.phone.B .gl{flex-basis:100%;font-size:13px;color:var(--dim)}
+</style>
+</head>
+<body>
+<h1>Nearest Jisho: two looks, same search</h1>
+<p class="note">The search typed is <b>jihso</b> (a typo for <b>jisho</b>). Both looks show the same 5 results. This is a still picture, nothing is clickable. Colours follow your system light or dark mode.</p>
+
+<h2>Look A: cards (like Jisho). 3 to 4 results per screen, all meanings visible.</h2>
+<div class="row">
+<div><p class="label">A on PC</p>
+<div class="frame pc A">
+<div class="search"><div>jihso</div></div>
+<div class="dym">No exact match for "jihso". Showing nearest: <b>jisho</b> (2 letters swapped)</div>
+<div class="card"><div class="word"><div class="kana">じしょ</div><div class="kanji">辞書</div><span class="tag">common</span><span class="tag g">N5</span></div><div><div class="pos">Noun</div><ol><li>dictionary; lexicon</li><li>(original) letter of resignation <span class="tag g">archaic</span></li></ol></div></div>
+<div class="card"><div class="word"><div class="kana">じしょけい</div><div class="kanji">辞書形</div></div><div><div class="pos">Noun · grammar</div><ol><li>dictionary form (of a verb)</li></ol></div></div>
+<div class="card"><div class="word"><div class="kana">じしょ</div><div class="kanji">地所</div><span class="tag">common</span></div><div><div class="pos">Noun</div><ol><li>estate; plot of land</li></ol></div></div>
+<div class="card"><div class="word"><div class="kana">じしょ</div><div class="kanji">自署</div></div><div><div class="pos">Noun · suru verb</div><ol><li>one's own signature; signing in person</li></ol></div></div>
+<div class="foot">Data: JMdict © EDRDG, CC BY-SA 4.0 · Wikipedia: search "jisho"</div>
+</div></div>
+<div><p class="label">A on phone</p>
+<div class="frame phone A">
+<div class="search"><div>jihso</div></div>
+<div class="dym">Nearest: <b>jisho</b></div>
+<div class="card"><div class="word"><div class="kana">じしょ</div><div class="kanji">辞書</div><span class="tag">common</span><span class="tag g">N5</span></div><div><div class="pos">Noun</div><ol><li>dictionary; lexicon</li><li>letter of resignation <span class="tag g">archaic</span></li></ol></div></div>
+<div class="card"><div class="word"><div class="kana">じしょけい</div><div class="kanji">辞書形</div></div><div><div class="pos">Noun · grammar</div><ol><li>dictionary form (of a verb)</li></ol></div></div>
+<div class="foot">Data: JMdict © EDRDG</div>
+</div></div>
+</div>
+
+<h2>Look B: compact rows (like Takoboto). 8 to 12 results per screen, tap a row for all meanings.</h2>
+<div class="row">
+<div><p class="label">B on PC</p>
+<div class="frame pc B">
+<div class="search"><div>jihso</div></div>
+<div class="dym">No exact match for "jihso". Showing nearest: <b>jisho</b> (2 letters swapped)</div>
+<div class="r"><span class="kanji">辞書</span><span class="kana">じしょ</span><span class="gl">dictionary; lexicon</span><span class="tag">common</span></div>
+<div class="r"><span class="kanji">辞書形</span><span class="kana">じしょけい</span><span class="gl">dictionary form (of a verb)</span></div>
+<div class="r"><span class="kanji">地所</span><span class="kana">じしょ</span><span class="gl">estate; plot of land</span><span class="tag">common</span></div>
+<div class="r"><span class="kanji">自署</span><span class="kana">じしょ</span><span class="gl">one's own signature; signing in person</span></div>
+<div class="r"><span class="kanji">字書</span><span class="kana">じしょ</span><span class="gl">character dictionary; kanji dictionary</span></div>
+<div class="foot">Data: JMdict © EDRDG, CC BY-SA 4.0 · Wikipedia: search "jisho"</div>
+</div></div>
+<div><p class="label">B on phone</p>
+<div class="frame phone B">
+<div class="search"><div>jihso</div></div>
+<div class="dym">Nearest: <b>jisho</b></div>
+<div class="r"><span class="kanji">辞書</span><span class="kana">じしょ</span><span class="tag">common</span><span class="gl">dictionary; lexicon</span></div>
+<div class="r"><span class="kanji">辞書形</span><span class="kana">じしょけい</span><span class="gl">dictionary form (of a verb)</span></div>
+<div class="r"><span class="kanji">地所</span><span class="kana">じしょ</span><span class="tag">common</span><span class="gl">estate; plot of land</span></div>
+<div class="r"><span class="kanji">自署</span><span class="kana">じしょ</span><span class="gl">one's own signature</span></div>
+<div class="r"><span class="kanji">字書</span><span class="kana">じしょ</span><span class="gl">character dictionary</span></div>
+<div class="foot">Data: JMdict © EDRDG</div>
+</div></div>
+</div>
+</body>
+</html>

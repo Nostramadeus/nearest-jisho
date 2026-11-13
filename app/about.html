@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About Nearest Jisho</title>
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script>
+  try { var t = localStorage.getItem('nj-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<style>
+  .about { padding: 16px 20px 24px; max-width: 70ch; }
+  .about h1 { font-size: 22px; margin: 0 0 8px; }
+  .about h2 { font-size: 16px; margin: 22px 0 6px; }
+  .about table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  .about th, .about td { text-align: left; border-bottom: 1px solid var(--line); padding: 6px 8px 6px 0; vertical-align: top; }
+  .about blockquote { margin: 8px 0; padding: 6px 12px; border-left: 3px solid var(--acc); background: var(--bg); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="about">
+    <p><a href="./">Back to the dictionary</a></p>
+    <h1>About Nearest Jisho</h1>
+    <p>Nearest Jisho is an offline Japanese-English dictionary. It finds words even when the search has a typo,
+      a missing long vowel or a doubled letter, and it shows results while you type. Everything runs on your device;
+      the dictionary data is stored by your browser after the first visit.</p>
+
+    <h2>How search works</h2>
+    <ul>
+      <li>Type English, Japanese (kana or kanji) or romaji. Romaji is matched against readings, English against meanings.</li>
+      <li>Results come in groups: Japanese words, English meanings, Slang and Wiktionary, Names.</li>
+      <li>When nothing matches exactly, the nearest spelling is shown with the reason (for example "letters swapped").</li>
+      <li>Verb and adjective forms such as 食べた or 食べさせられた lead to the dictionary form.</li>
+      <li>Tap a kanji in a headword to see its meanings, readings and stroke count.</li>
+    </ul>
+
+    <h2>Licences</h2>
+    <p>The app code is under the MIT licence. The dictionary data keeps the licences of its sources:</p>
+    <table>
+      <tr><th>Source</th><th>Licence</th><th>Used for</th></tr>
+      <tr><td><a href="https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project" target="_blank" rel="noopener">JMdict</a>,
+        <a href="https://www.edrdg.org/enamdict/enamdict_doc.html" target="_blank" rel="noopener">JMnedict</a>,
+        <a href="https://www.edrdg.org/wiki/index.php/KANJIDIC_Project" target="_blank" rel="noopener">KANJIDIC2</a></td>
+        <td><a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a></td>
+        <td>Words, names, kanji</td></tr>
+      <tr><td><a href="https://en.wiktionary.org/" target="_blank" rel="noopener">English Wiktionary</a>,
+        <a href="https://ja.wiktionary.org/" target="_blank" rel="noopener">Japanese Wiktionary</a>
+        (via <a href="https://kaikki.org/" target="_blank" rel="noopener">kaikki.org</a>)</td>
+        <td><a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a></td>
+        <td>Slang and extra words; each entry links to its page</td></tr>
+      <tr><td><a href="https://jiten.moe/" target="_blank" rel="noopener">jiten.moe</a></td>
+        <td><a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a></td>
+        <td>Word frequency in fiction and media (ranking)</td></tr>
+      <tr><td><a href="https://tatoeba.org/" target="_blank" rel="noopener">Tatoeba</a></td>
+        <td><a href="https://creativecommons.org/licenses/by/2.0/fr/" target="_blank" rel="noopener">CC BY 2.0 FR</a></td>
+        <td>Example sentences</td></tr>
+      <tr><td><a href="https://github.com/stephenmk/yomitan-jlpt-vocab" target="_blank" rel="noopener">yomitan-jlpt-vocab</a></td>
+        <td><a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a></td>
+        <td>JLPT levels</td></tr>
+    </table>
+    <blockquote>This site uses the JMdict/EDICT and KANJIDIC dictionary files. These files are the property of the
+      Electronic Dictionary Research and Development Group, and are used in conformance with the Group's
+      <a href="https://www.edrdg.org/edrdg/licence.html" target="_blank" rel="noopener">licence</a>.</blockquote>
+    <p>JLPT data is sourced from Jonathan Waller's JLPT Resources page under the terms of the Creative Commons BY license.</p>
+
+    <h2>Source code</h2>
+    <p><a href="https://github.com/Nostramadeus/nearest-jisho" target="_blank" rel="noopener">github.com/Nostramadeus/nearest-jisho</a></p>
+  </div>
+  <footer class="foot">Data: JMdict, JMnedict, KANJIDIC2 © EDRDG (CC BY-SA 4.0) · Wiktionary · jiten.moe · Tatoeba</footer>
+</div>
+</body>
+</html>

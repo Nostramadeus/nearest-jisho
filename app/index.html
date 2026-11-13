@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nearest Jisho - Japanese Dictionary</title>
+<meta name="description" content="Offline Japanese-English dictionary with typo-tolerant search and results as you type.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#2f7d4f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+<script>
+  // Apply the stored theme before first paint.
+  try { var t = localStorage.getItem('nj-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+<div class="page">
+  <h1 class="visually-hidden">Nearest Jisho - Japanese Dictionary</h1>
+  <div class="search" role="search">
+    <input id="q" type="search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search"
+      placeholder="Search in English, Japanese or romaji" aria-label="Search the dictionary" autofocus>
+    <button id="gear" class="gear" type="button" aria-label="Settings" aria-expanded="false" aria-controls="settings">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+    </button>
+  </div>
+  <div id="progress" class="progress" hidden></div>
+  <section id="settings" class="panel" hidden aria-label="Settings">
+    <fieldset>
+      <legend>Ranking</legend>
+      <label><input type="radio" name="ranking" value="fiction"> Fiction and media (jiten.moe)</label>
+      <label><input type="radio" name="ranking" value="news"> Newspapers (JMdict)</label>
+    </fieldset>
+    <fieldset>
+      <legend>Theme</legend>
+      <label><input type="radio" name="theme" value="auto"> Automatic</label>
+      <label><input type="radio" name="theme" value="light"> Light</label>
+      <label><input type="radio" name="theme" value="dark"> Dark</label>
+    </fieldset>
+    <p class="dim">Dictionary data: <span id="built">loading</span></p>
+  </section>
+  <div id="dym" class="dym" hidden></div>
+  <main id="results" aria-live="polite"></main>
+  <section id="recent" class="recent" hidden aria-label="Recent searches"></section>
+  <footer class="foot">
+    <div id="wiki" class="wiki" hidden></div>
+    <div>Data: <a href="https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project" target="_blank" rel="noopener">JMdict</a>,
+      <a href="https://www.edrdg.org/enamdict/enamdict_doc.html" target="_blank" rel="noopener">JMnedict</a>,
+      <a href="https://www.edrdg.org/wiki/index.php/KANJIDIC_Project" target="_blank" rel="noopener">KANJIDIC2</a>
+      © <a href="https://www.edrdg.org/edrdg/licence.html" target="_blank" rel="noopener">EDRDG</a>
+      (<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>) ·
+      <a href="https://en.wiktionary.org/" target="_blank" rel="noopener">Wiktionary</a> ·
+      <a href="https://jiten.moe/" target="_blank" rel="noopener">jiten.moe</a> ·
+      <a href="https://tatoeba.org/" target="_blank" rel="noopener">Tatoeba</a> ·
+      <a href="about.html">About and licences</a></div>
+  </footer>
+</div>
+<script type="module" src="main.js"></script>
+</body>
+</html>
