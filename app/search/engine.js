@@ -949,13 +949,17 @@ function suggestionsOf(store, ctx, hits, jaPacks, en, kind) {
       return { side: 'ja', key: h.key, chip, head: shownHead(rec), pack: h.pack, id: h.id, label: labelOf(h, kind === 'kana'), S };
     });
   const out = ja;
-  if (en && en.corrections && en.corrections.length) {
+  // Ruling 2026-11-13: English corrections are chips only when the Japanese side has no good guess (no exact
+  // Japanese hit and no Japanese suggestion with S <= 9); otherwise `kaisa` offered `laksa` and `naiso` offered `daiso`.
+  const jaGood = jaPacks.some((p) => hasTier0(hits[p])) || (ja.length > 0 && ja[0].S <= 9);
+  if (!jaGood && en && en.corrections && en.corrections.length) {
     const enHits = Array.from((en.res.words || new Map()).values()).filter((h) => h.tier === 3 && h.tokens);
     for (const q of en.corrections.slice(0, SUGGEST_EN_MAX)) {
       const text = q.join(' ');
       const mine = enHits.filter((h) => h.tokens.join(' ') === text)
         .sort((x, y) => (x.cls - y.cls) || (x.sense - y.sense) || store.rank(x.pack, x.id, ctx.ranking) - store.rank(y.pack, y.id, ctx.ranking));
       const best = mine[0];
+      if (!best) continue; // a correction that finds no entry is not offered
       out.push({
         side: 'en', key: text, chip: text, head: best ? shownHead(store.getRecord(best.pack, best.id)) : '',
         pack: best ? best.pack : null, id: best ? best.id : null, label: en.dym ? en.dym.reason : '', S: null,

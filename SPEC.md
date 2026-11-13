@@ -670,3 +670,10 @@ Replaces the single "Nearest: <key>" text and changes one ordering rule of secti
   reason label. This overrides the "After it, smaller and dim, the best record's headword" sentence of 21.2.
 - KANJI queries and text input (the "Words in this text" case) get no chips and no yellow bar from this section.
 - Tapping a chip searches that spelling, so the list below shows every entry with that reading.
+
+### 21.4 Rulings 2026-11-13 (coordinator, after the first chips build)
+- The tier-1 exception of 21.1 applies only when the group also has a tier-0 hit without the common flag (`gakko`).
+  Without one, tier-1 hits are ordered by S with the rest (`naiso`: 内緒 before 内装). Confirmed as built.
+- English corrections become chips only when the Japanese side has no good guess: no Japanese tier-0 hit and no
+  Japanese suggestion with S <= 9. A correction that finds no entry is never offered. (`kaisa` no longer offers
+  `laksa`; `dictonary` still offers `dictionary`.)
