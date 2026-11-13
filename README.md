@@ -9,6 +9,21 @@ Results appear while you type. Search in English, kana, kanji or romaji.
 - Slang from JMdict and Wiktionary is shown with labels; names come from JMnedict; tap a kanji for its details.
 - Everything runs on the device. After the first visit the app works offline.
 
+## Download
+
+- Web (any device): https://nostramadeus.github.io/nearest-jisho/
+- App files: [latest release](https://github.com/Nostramadeus/nearest-jisho/releases/latest)
+
+| Platform | How to install |
+|---|---|
+| Android | Download the `.apk` and open it. Allow "install unknown apps" once when the phone asks. |
+| Windows | Download and run the `-windows-setup.exe`. On the blue warning, click "More info", then "Run anyway". |
+| Linux | Download the `.AppImage`, run `chmod +x` on it, then run it. |
+| iPhone and Mac | Open the web address. iPhone: Share, then "Add to Home Screen". Mac: install it from the browser (Chrome/Edge install button, Safari "Add to Dock"). |
+
+The warnings are expected: the files are not signed with a paid certificate.
+The data is rebuilt every month; each build is a new release.
+
 ## Build the data
 
 Node 24, no npm packages. The build downloads the sources (streamed, temporary files in `build/.cache/`)
@@ -48,6 +63,7 @@ node --test test/                     # unit and engine tests on a small hand-ma
 | `build/` | data build scripts |
 | `tools/` | `query.mjs` command line, `make-icons.mjs` |
 | `test/` | `node --test test/` |
+| `packaging/` | Android (Capacitor) and desktop (Electron) wrappers; built only on GitHub Actions by `.github/workflows/build.yml` |
 | `SPEC.md` | the plan of record |
 
 ## Licences

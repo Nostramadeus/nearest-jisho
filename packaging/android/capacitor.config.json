@@ -1,0 +1,8 @@
+{
+  "appId": "io.github.nostramadeus.nearestjisho",
+  "appName": "Nearest Jisho",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  }
+}
