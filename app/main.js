@@ -34,6 +34,7 @@ const S = {
   loaded: {},
   lastResult: null,
   view: 'search',  // 'search' | 'entry' | 'fav'
+  favPushed: false, // Favorites was opened with the button in this session (so history.back() closes it)
   favRemoved: new Map(), // rows clicked off during this visit of the Favorites view (shown greyed): key -> item
   entry: null,     // { w, r, p } of the open entry page
   entryReq: 0,
@@ -185,7 +186,7 @@ function openEntry(addr) {
 }
 
 function setView(v) {
-  if (S.view === 'fav' && v !== 'fav') S.favRemoved.clear(); // greyed rows go away when the view is left
+  if (S.view === 'fav' && v !== 'fav') { S.favRemoved.clear(); S.favPushed = false; } // greyed rows go away when the view is left
   S.view = v;
   searchViewEl.hidden = v !== 'search';
   entryEl.hidden = v !== 'entry';
@@ -193,6 +194,8 @@ function setView(v) {
   if (v !== 'entry') { entryEl.innerHTML = ''; S.entry = null; }
   if (v !== 'fav') favViewEl.innerHTML = '';
   if (v === 'fav') favBtnEl.setAttribute('aria-current', 'page'); else favBtnEl.removeAttribute('aria-current');
+  favBtnEl.setAttribute('aria-pressed', String(v === 'fav'));
+  favBtnEl.title = v === 'fav' ? 'Close Favorites' : 'Favorites';
 }
 
 function showEntry(addr) {
@@ -229,10 +232,19 @@ function showSearchView() {
 
 // ---------- Favorites view (SPEC 11) ----------
 function openFavorites() {
-  if (S.view === 'fav') return;
+  // The Favorites button is a toggle: a second click returns to where the user was.
+  if (S.view === 'fav') { closeFavorites(); return; }
   if (S.view === 'search') history.replaceState({ scroll: window.scrollY }, '', location.href);
   history.pushState({ view: 'fav' }, '', '#fav');
+  S.favPushed = true;
   showFavorites();
+}
+function closeFavorites() {
+  if (S.favPushed) { history.back(); return; } // opened with the button: Back restores the previous view and scroll
+  // opened by a direct visit to #fav: there is nothing to go back to, show the search view
+  showSearchView();
+  history.replaceState(null, '', S.query ? `#q=${encodeURIComponent(S.query)}` : emptyAddress());
+  if (!S.query.trim()) renderEmpty();
 }
 function showFavorites() {
   setView('fav');

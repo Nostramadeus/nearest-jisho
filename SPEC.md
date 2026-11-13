@@ -337,6 +337,9 @@ and by a monthly schedule that also commits a `DATA-VERSION` bump so the schedul
   visible, greyed, with the star outlined, until the view is left, so a wrong click can be undone by clicking again).
   Header line: `Favorites (N)` and one button `Copy list`, which writes tab-separated lines `word<TAB>reading<TAB>gloss`
   to the clipboard (`navigator.clipboard.writeText`, fallback: a selected `<textarea>`), then shows "Copied N lines".
+- Ruling 2026-11-13: the Favorites button is a TOGGLE. A second click closes the view and returns to the previous
+  view and scroll position (`history.back()` when it was opened with the button; otherwise the search view).
+  `aria-pressed` and the title (`Favorites` / `Close Favorites`) follow the view.
 - Empty state text: `No favorites yet. Click the star on a word to keep it here.`
 - The search box stays on top; typing leaves the Favorites view. Favorites never change ranking.
 - The settings panel gets one line: `Favorites and recent searches are stored on this device only.`
