@@ -87,65 +87,190 @@ export function readerFor(inUse, { caches, fetch, base = DATA_BASE, read }) {
   };
 }
 
-/**
- * SPEC 14.3 "Download dictionary updates": 'always' | 'wifi' | 'never'. connectionType = navigator.connection.type
- * or undefined when the browser does not report it (then 'wifi' behaves as 'always').
- */
-export function mayDownload(policy, connectionType) {
-  if (policy === 'never') return false;
-  if (policy === 'wifi' && connectionType) return connectionType === 'wifi' || connectionType === 'ethernet';
-  return true;
+// ---------- update choice (SPEC 14.3, 15) ----------
+
+/** "Download dictionary updates": 'ask' (default) | 'always' | 'wifi' | 'never'. */
+export const UPDATE_CHOICES = ['ask', 'always', 'wifi', 'never'];
+/** Stored choice -> choice in use: a stored always / wifi / never is kept, anything else is "Ask each time". */
+export function loadUpdateChoice(stored) {
+  return UPDATE_CHOICES.includes(stored) ? stored : 'ask';
 }
+
+/**
+ * What the update check does with a found update: 'auto' (download), 'ask' (show the bar), 'skip'.
+ * connectionType = navigator.connection.type, or undefined when the browser does not report it.
+ * "Only on Wi-Fi" off Wi-Fi asks instead of skipping (SPEC 15); with an unknown type it behaves as Always (14.3).
+ */
+export function updateAction(policy, connectionType) {
+  if (policy === 'never') return 'skip';
+  if (policy === 'ask') return 'ask';
+  if (policy === 'wifi' && connectionType) return connectionType === 'wifi' || connectionType === 'ethernet' ? 'auto' : 'ask';
+  return 'auto';
+}
+/** True when the update check may download without asking. */
+export const mayDownload = (policy, connectionType) => updateAction(policy, connectionType) === 'auto';
 export const WIFI_UNKNOWN_NOTE = 'This device does not report its connection type; updates download on any connection.';
 export const wifiNoteShown = (policy, connectionType) => policy === 'wifi' && !connectionType;
 
+// ---------- finding and downloading an update ----------
+
+/** Same identity for the same published update: the set of remote pack hashes ("Not now" remembers it). */
+export function updateSignature(remote) {
+  return Object.keys((remote && remote.packs) || {}).sort().map((p) => `${p}:${remote.packs[p].hash || `built-${remote.built}`}`).join(',');
+}
+
 /**
- * Update check (SPEC 14.3): download only the packs whose remote hash differs from the copy in use; a pack with
- * an equal hash is never downloaded again; a copy without a hash counts as different once. Each pack copy is
- * stored complete (all files answered 200, then the marker) or not at all.
- * Returns { remote, downloaded: [packs], failed: [packs], allMatch, skipped }.
+ * Look for an update without downloading: { status: 'available' | 'uptodate' | 'unreachable', remote, packs }.
+ * packs = the packs whose remote hash differs from the copy in use and that are not already downloaded
+ * (a downloaded copy waits for the next start).
  */
-export async function checkUpdates({ caches, fetch, inUse, policy = 'always', connectionType, onPackReady }) {
-  const out = { remote: null, downloaded: [], failed: [], allMatch: false, skipped: null };
-  if (!caches) { out.skipped = 'no Cache Storage'; return out; }
-  if (!mayDownload(policy, connectionType)) { out.skipped = `policy ${policy}`; return out; }
+export async function findUpdate({ caches, fetch, inUse }) {
   let remote;
   try {
     const r = await fetch(REMOTE_BASE + VERSION_FILE, { cache: 'no-cache' });
-    if (!r.ok) { out.skipped = `version.json HTTP ${r.status}`; return out; }
+    if (!r.ok) return { status: 'unreachable', remote: null, packs: [] };
     remote = await r.json();
-  } catch { out.skipped = 'offline'; return out; }
-  out.remote = remote;
-  const names = await caches.keys();
+  } catch { return { status: 'unreachable', remote: null, packs: [] }; }
+  const names = caches ? await caches.keys() : [];
+  const packs = [];
   for (const p of DATA_PACKS) {
     const re = remote.packs && remote.packs[p];
     if (!re) continue;
     const use = inUse[p];
     if (use && use.entry && use.entry.hash && re.hash && use.entry.hash === re.hash) continue; // equal: never again
     const name = cacheNameOf(p, copyKey(re, remote.built));
-    if (use && use.cacheName === name) continue; // this very copy is in use (data without hashes)
-    if (names.includes(name) && await (await caches.open(name)).match(markerUrl())) continue; // waits for next start
-    const cache = await caches.open(name);
+    if (use && use.cacheName === name) continue;
+    if (caches && names.includes(name) && await (await caches.open(name)).match(markerUrl())) continue;
+    packs.push(p);
+  }
+  return { status: packs.length ? 'available' : 'uptodate', remote, packs };
+}
+
+/** "about <N> MB" from gz, or "up to <N> MB" when a pack has no gz (its bytes are used); N rounded up. */
+export function updateSize(remote, packs) {
+  let sum = 0, upTo = false;
+  for (const p of packs) {
+    const e = remote.packs[p] || {};
+    if (Number.isInteger(e.gz) && e.gz > 0) sum += e.gz;
+    else { upTo = true; sum += e.bytes || 0; }
+  }
+  const mb = Math.max(1, Math.ceil(sum / (1024 * 1024)));
+  return `${upTo ? 'up to' : 'about'} ${mb} MB`;
+}
+
+/** Text of the bar (SPEC 15). */
+export function updateOfferText(remote, packs) {
+  return `New dictionary data is available (${remote.built}, ${updateSize(remote, packs)}).`;
+}
+
+/**
+ * Download packs of a found update into Cache Storage. Each pack copy is complete (all files 200, then the
+ * marker) or deleted. allOrNothing: on any failure or cancel, the packs finished in this run are deleted too, so
+ * nothing changes (the bar's Download button). onProgress(pack, percent). signal: AbortSignal for Cancel.
+ * Returns { ok, cancelled, downloaded: [packs], failed: [packs] }.
+ */
+export async function downloadPacks({ caches, fetch, remote, packs, inUse = {}, onProgress, signal, allOrNothing = false }) {
+  const out = { ok: true, cancelled: false, downloaded: [], failed: [] };
+  const done = [];
+  for (const p of packs) {
+    const re = remote.packs[p];
+    const name = cacheNameOf(p, copyKey(re, remote.built));
     try {
+      if (signal && signal.aborted) throw Object.assign(new Error('cancelled'), { cancelled: true });
+      const cache = await caches.open(name);
+      const total = re.bytes || 0;
+      let got = 0;
+      if (onProgress) onProgress(p, 0);
       for (const f of filesOf(p, re)) {
-        const r = await fetch(REMOTE_BASE + f, { cache: 'no-cache' });
+        const r = await fetch(REMOTE_BASE + f, { cache: 'no-cache', signal });
         if (!r.ok) throw new Error(`HTTP ${r.status} for ${f}`);
-        await cache.put(REMOTE_BASE + f, r);
+        const body = await readAll(r, (n) => { got += n; if (onProgress && total) onProgress(p, Math.min(99, Math.floor((got / total) * 100))); }, signal);
+        await cache.put(REMOTE_BASE + f, new Response(body, { status: 200, headers: { 'content-type': r.headers.get('content-type') || 'application/octet-stream' } }));
       }
       await cache.put(markerUrl(), new Response(JSON.stringify({ pack: p, entry: re, built: remote.built }),
         { headers: { 'content-type': 'application/json' } }));
+      if (onProgress) onProgress(p, 100);
+      done.push({ p, name });
       out.downloaded.push(p);
-      if (onPackReady) onPackReady(p);
-      // other downloaded copies of this pack, except the one in use, are no longer needed
       for (const n of await caches.keys()) {
-        if (n.startsWith(`${PACK_PREFIX}${p}-`) && n !== name && !(use && use.cacheName === n)) await caches.delete(n);
+        if (n.startsWith(`${PACK_PREFIX}${p}-`) && n !== name && !(inUse[p] && inUse[p].cacheName === n)) await caches.delete(n);
       }
-    } catch {
-      await caches.delete(name).catch(() => {}); // a failed or partial download changes nothing
+    } catch (e) {
+      await caches.delete(name).catch(() => {}); // partial download deleted
+      out.ok = false;
       out.failed.push(p);
+      if (e && (e.cancelled || e.name === 'AbortError' || (signal && signal.aborted))) out.cancelled = true;
+      if (allOrNothing || out.cancelled) break;
     }
   }
-  out.allMatch = !!remote.packs && Object.entries(remote.packs).every(([p, re]) =>
-    re && re.hash && inUse[p] && inUse[p].entry && inUse[p].entry.hash === re.hash);
+  if (!out.ok && allOrNothing) {
+    for (const d of done) await caches.delete(d.name).catch(() => {});
+    out.downloaded = [];
+  }
   return out;
+}
+
+async function readAll(resp, onBytes, signal) {
+  if (!resp.body || !resp.body.getReader) {
+    const b = new Uint8Array(await resp.arrayBuffer());
+    onBytes(b.length);
+    return b;
+  }
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    if (signal && signal.aborted) { try { await reader.cancel(); } catch { /* ignore */ } throw Object.assign(new Error('cancelled'), { cancelled: true }); }
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    total += value.length;
+    onBytes(value.length);
+  }
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const c of chunks) { out.set(c, o); o += c.length; }
+  return out;
+}
+
+/**
+ * Automatic update (14.3, choices Always and Only on Wi-Fi on Wi-Fi): download only the packs whose hash differs,
+ * pack by pack. Returns { remote, downloaded, failed, allMatch, skipped }.
+ */
+export async function checkUpdates({ caches, fetch, inUse, policy = 'always', connectionType, onPackReady }) {
+  const out = { remote: null, downloaded: [], failed: [], allMatch: false, skipped: null };
+  if (!caches) { out.skipped = 'no Cache Storage'; return out; }
+  if (!mayDownload(policy, connectionType)) { out.skipped = `policy ${policy}`; return out; }
+  const f = await findUpdate({ caches, fetch, inUse });
+  if (f.status === 'unreachable') { out.skipped = 'offline'; return out; }
+  out.remote = f.remote;
+  if (f.packs.length) {
+    const d = await downloadPacks({ caches, fetch, remote: f.remote, packs: f.packs, inUse });
+    out.downloaded = d.downloaded;
+    out.failed = d.failed;
+    if (onPackReady) for (const p of d.downloaded) onPackReady(p);
+  }
+  out.allMatch = allMatch(f.remote, inUse);
+  return out;
+}
+
+/** Every published pack equals the copy in use (the settings line may show the published date). */
+export function allMatch(remote, inUse) {
+  return !!(remote && remote.packs) && Object.entries(remote.packs).every(([p, re]) =>
+    re && re.hash && inUse[p] && inUse[p].entry && inUse[p].entry.hash === re.hash);
+}
+
+// ---------- texts and small decisions of the bar (SPEC 15) ----------
+
+/** The bar is shown unless this exact update was answered "Not now" (a manual check always shows it). */
+export const shouldShowOffer = (signature, dismissed, manual) => !!manual || signature !== dismissed;
+
+export const UPDATE_DONE_TEXT = 'Dictionary data updated. It is used the next time the app starts.';
+export const UPDATE_FAILED_TEXT = 'The download did not finish. Nothing was changed.';
+/** Line under "Check for dictionary updates now" for the outcomes without a bar. */
+export function checkResultText(status) {
+  if (status === 'uptodate') return 'Dictionary data is up to date.';
+  if (status === 'unreachable') return 'Could not reach the update server.';
+  if (status === 'busy') return 'A download is already running.';
+  return '';
 }

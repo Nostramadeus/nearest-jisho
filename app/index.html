@@ -34,6 +34,7 @@
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
     </button>
   </div>
+  <div id="updatebar" class="updatebar" role="status" hidden></div>
   <div id="progress" class="progress" hidden></div>
   <section id="settings" class="panel" hidden aria-label="Settings">
     <fieldset>
@@ -49,10 +50,13 @@
     </fieldset>
     <fieldset>
       <legend>Download dictionary updates</legend>
+      <label><input type="radio" name="updates" value="ask"> Ask each time</label>
       <label><input type="radio" name="updates" value="always"> Always</label>
       <label><input type="radio" name="updates" value="wifi"> Only on Wi-Fi</label>
       <label><input type="radio" name="updates" value="never"> Never</label>
       <p id="wifinote" class="dim" hidden></p>
+      <p><button type="button" id="checknow" class="checknow">Check for dictionary updates now</button></p>
+      <p id="checkresult" class="dim" role="status" hidden></p>
     </fieldset>
     <p class="dim">Dictionary data: <span id="built">loading</span></p>
     <p class="dim">App version: <span id="appversion">checking</span></p>

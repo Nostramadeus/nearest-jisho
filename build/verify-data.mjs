@@ -147,6 +147,9 @@ try {
     const missing = e.files.filter((f) => !fs.existsSync(path.join(OUT, f)));
     if (missing.length) { fail(`version.json: ${pack} files missing: ${missing.join(', ')}`); continue; }
     if (!/^[0-9a-f]{16}$/.test(e.hash || '')) { fail(`version.json: ${pack} has no valid "hash"`); continue; }
+    if ('gz' in e) {
+      Number.isInteger(e.gz) && e.gz > 0 ? ok(`${pack}: gz ${e.gz} bytes`) : fail(`${pack}: gz ${JSON.stringify(e.gz)} is not a positive integer`);
+    }
     const h = packHash(OUT, e.files);
     h === e.hash ? ok(`${pack}: hash ${h} matches (${e.files.join(', ')})`) : fail(`${pack}: hash ${h} != version.json ${e.hash}`);
   }

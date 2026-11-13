@@ -1,7 +1,9 @@
 // UI (SPEC 5, 10, 11, 12). Talks to worker.js; renders Look A cards, the entry page and the Favorites view.
-import { esc, groupsHtml, entryHtml, favoritesHtml } from './render.js';
+import { esc, groupsHtml, entryHtml, favoritesHtml, updateBarHtml } from './render.js';
 import { createFavorites, favoritesText } from './favorites.js';
-import { WIFI_UNKNOWN_NOTE, wifiNoteShown } from './datasets.js';
+import {
+  WIFI_UNKNOWN_NOTE, wifiNoteShown, loadUpdateChoice, shouldShowOffer, checkResultText, UPDATE_DONE_TEXT, UPDATE_FAILED_TEXT,
+} from './datasets.js';
 import { didYouMeanText } from './search/engine.js';
 import { parseEntryHash, entryHash } from './search/entry.js';
 
@@ -78,6 +80,10 @@ worker.onmessage = (ev) => {
       if (!/downloaded/.test($('built').textContent)) $('built').textContent += ` (updates downloaded: ${(m.packs || []).map((p) => PACK_LABEL[p] || p).join(', ')}; used from the next start)`;
       break;
     case 'result': onResult(m); break;
+    case 'updateOffer': onUpdateOffer(m); break;
+    case 'downloadProgress': showBar({ kind: 'progress', pack: m.pack, pct: m.pct }); break;
+    case 'downloadDone': showBar(m.ok ? { kind: 'done', text: UPDATE_DONE_TEXT } : { kind: 'failed', text: UPDATE_FAILED_TEXT }); break;
+    case 'checkResult': onCheckResult(m); break;
     case 'entry': onEntry(m); break;
   }
 };
@@ -364,10 +370,9 @@ for (const r of document.querySelectorAll('input[name="theme"]')) {
 }
 applyTheme();
 
-// "Download dictionary updates" (SPEC 14.3); does not limit app-code updates (sw.js)
-const UPDATE_CHOICES = ['always', 'wifi', 'never'];
-S.updates = store.get('nj-updates', 'always');
-if (!UPDATE_CHOICES.includes(S.updates)) S.updates = 'always';
+// "Download dictionary updates" (SPEC 14.3, 15); does not limit app-code updates (sw.js)
+// Default "Ask each time"; a stored always / wifi / never from before is kept.
+S.updates = loadUpdateChoice(store.get('nj-updates', null));
 function connectionType() {
   try { return (navigator.connection && navigator.connection.type) || undefined; } catch { return undefined; }
 }
@@ -377,11 +382,58 @@ function applyUpdateChoice() {
   note.hidden = !wifiNoteShown(S.updates, connectionType());
   worker.postMessage({ type: 'settings', updates: S.updates, connectionType: connectionType() });
 }
+function setUpdateChoice(v) {
+  S.updates = v;
+  store.set('nj-updates', v);
+  for (const r of document.querySelectorAll('input[name="updates"]')) r.checked = r.value === v;
+  applyUpdateChoice();
+}
 for (const r of document.querySelectorAll('input[name="updates"]')) {
   r.checked = r.value === S.updates;
-  r.addEventListener('change', () => { S.updates = r.value; store.set('nj-updates', S.updates); applyUpdateChoice(); });
+  r.addEventListener('change', () => setUpdateChoice(r.value));
 }
 applyUpdateChoice();
+
+// ---------- update bar (SPEC 15) ----------
+const barEl = $('updatebar'), checkResultEl = $('checkresult');
+const DISMISSED_KEY = 'nj-updates-not-now';
+let offerSignature = '';
+let offerPacks = [];
+function showBar(state) {
+  barEl.innerHTML = updateBarHtml(state);
+  barEl.hidden = false; // shown without moving focus
+}
+function hideBar() { barEl.hidden = true; barEl.innerHTML = ''; }
+function onUpdateOffer(m) {
+  if (!shouldShowOffer(m.signature, store.get(DISMISSED_KEY, ''), m.manual)) return;
+  offerSignature = m.signature;
+  offerPacks = m.packs || [];
+  showBar({ kind: 'offer', text: m.text });
+}
+barEl.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-update]');
+  if (!b) return;
+  switch (b.dataset.update) {
+    case 'download': case 'retry':
+      showBar({ kind: 'progress', pack: offerPacks[0] || 'words', pct: 0 });
+      worker.postMessage({ type: 'download' });
+      break;
+    case 'cancel': worker.postMessage({ type: 'cancelDownload' }); break;
+    case 'notnow': store.set(DISMISSED_KEY, offerSignature); hideBar(); break; // this exact update is not offered again
+    case 'never': setUpdateChoice('never'); hideBar(); break;
+    case 'close': hideBar(); break;
+  }
+});
+$('checknow').addEventListener('click', () => {
+  checkResultEl.hidden = false;
+  checkResultEl.textContent = 'Checking.';
+  worker.postMessage({ type: 'checkNow' });
+});
+function onCheckResult(m) {
+  const t = checkResultText(m.status);
+  checkResultEl.textContent = t;
+  checkResultEl.hidden = !t;
+}
 
 // ---------- results ----------
 function onResult(m) {

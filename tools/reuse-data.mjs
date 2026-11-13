@@ -2,14 +2,14 @@
 // CI (SPEC 14.1): reuse the published data instead of rebuilding it.
 //   node tools/reuse-data.mjs [--base URL] [--out DIR]
 // Reads <base>/version.json, downloads every file each pack lists into DIR (default app/data), checks each pack's
-// hash, then writes the published version.json unchanged (so "built" keeps the date of the real data build).
+// hash, then writes the published version.json (adding "gz" when it lacks it; "built" and hashes unchanged).
 // Exit 0 with one summary line; exit 1 with the reason (404, hash mismatch, no "files" list, ...).
 import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
-import { packHash } from '../build/lib/packwriter.mjs';
+import { packHash, packGz } from '../build/lib/packwriter.mjs';
 
 const PACKS = ['words', 'names', 'wikt', 'sent', 'kanji'];
 
@@ -40,8 +40,11 @@ export async function reuseData({ base, out, fetchFn = fetch, log = () => {} }) 
     if (h !== e.hash) throw new Error(`${p}: hash ${h} does not match the published ${e.hash}`);
     log(`${p}: ${e.files.length} files, hash ${h} ok`);
   }
-  fs.writeFileSync(path.join(out, 'version.json'), text);
-  return { built: v.built, bytes, packs: PACKS.length };
+  // SPEC 15: add "gz" when the published version.json lacks it; hash and built stay as published
+  const missingGz = PACKS.filter((p) => !(Number.isInteger(v.packs[p].gz) && v.packs[p].gz > 0));
+  for (const p of missingGz) v.packs[p].gz = packGz(out, v.packs[p].files);
+  fs.writeFileSync(path.join(out, 'version.json'), missingGz.length ? JSON.stringify(v, null, 1) + '\n' : text);
+  return { built: v.built, bytes, packs: PACKS.length, addedGz: missingGz };
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
@@ -52,7 +55,7 @@ if (isMain) {
   const out = path.resolve(opt('--out', path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'app', 'data')));
   try {
     const r = await reuseData({ base, out, log: (m) => console.log(m) });
-    console.log(`reused published data built ${r.built}: ${r.packs} packs, ${(r.bytes / 1048576).toFixed(1)} MB, all hashes match`);
+    console.log(`reused published data built ${r.built}: ${r.packs} packs, ${(r.bytes / 1048576).toFixed(1)} MB, all hashes match${r.addedGz.length ? `; added gz for ${r.addedGz.join(', ')}` : ''}`);
   } catch (e) {
     console.log(`reuse failed: ${e.message}`);
     process.exit(1);

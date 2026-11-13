@@ -2,7 +2,10 @@
 import { PackStore, SENT, LOAD_ORDER } from './search/packs.js';
 import { search } from './search/engine.js';
 import { findEntry, entryData } from './search/entry.js';
-import { chooseData, readerFor, versionOf, builtOf, checkUpdates, filesOf, DATA_BASE, BUNDLED_CACHE } from './datasets.js';
+import {
+  chooseData, readerFor, versionOf, builtOf, checkUpdates, filesOf, DATA_BASE, BUNDLED_CACHE,
+  updateAction, findUpdate, downloadPacks, updateOfferText, updateSignature, allMatch,
+} from './datasets.js';
 
 const post = (m) => self.postMessage(m);
 const hasCaches = typeof caches !== 'undefined';
@@ -15,7 +18,9 @@ const failed = {};
 let kanjiDone = false;
 const pendingEntries = []; // entry requests that wait for their pack (direct visit to an entry address)
 let started = false;      // all packs attempted
-const settings = { updates: 'always', connectionType: undefined }; // from the page (SPEC 14.3)
+const settings = { updates: 'ask', connectionType: undefined }; // from the page (SPEC 14.3, 15)
+let offer = null;      // the update found last: { remote, packs } (SPEC 15 bar)
+let download = null;   // AbortController of the running download
 
 // ---------- reading files ----------
 
@@ -93,17 +98,58 @@ async function dropBundledCopies() {
   } catch { /* nothing to clean */ }
 }
 
-// ---------- update check (SPEC 14.3) ----------
+// ---------- update check (SPEC 14.3, 15) ----------
 
+const deps = () => ({ caches, fetch: (...a) => fetch(...a) });
+function connType() {
+  const c = settings.connectionType !== undefined ? settings.connectionType
+    : (self.navigator && self.navigator.connection && self.navigator.connection.type) || undefined;
+  return c || undefined;
+}
+function postOffer(f, manual) {
+  offer = { remote: f.remote, packs: f.packs };
+  post({
+    type: 'updateOffer', manual, built: f.remote.built, packs: f.packs,
+    text: updateOfferText(f.remote, f.packs), signature: updateSignature(f.remote),
+  });
+}
+
+/** At start: Always (or Wi-Fi on Wi-Fi) downloads; Ask each time (or Wi-Fi off Wi-Fi) offers; Never does nothing. */
 async function checkUpdate() {
   if (!hasCaches || (self.navigator && self.navigator.onLine === false)) return;
-  const conn = settings.connectionType !== undefined ? settings.connectionType
-    : (self.navigator && self.navigator.connection && self.navigator.connection.type) || undefined;
-  const r = await checkUpdates({
-    caches, fetch: (...a) => fetch(...a), inUse, policy: settings.updates, connectionType: conn || undefined,
+  const action = updateAction(settings.updates, connType());
+  if (action === 'skip') return;
+  if (action === 'auto') {
+    const r = await checkUpdates({ ...deps(), inUse, policy: 'always' });
+    if (r.downloaded.length) post({ type: 'updateReady', built: r.remote.built, packs: r.downloaded });
+    if (r.allMatch && r.remote) post({ type: 'version', built: r.remote.built }); // every pack equals the published one
+    return;
+  }
+  const f = await findUpdate({ ...deps(), inUse });
+  if (f.status === 'available') postOffer(f, false);
+  else if (f.status === 'uptodate' && allMatch(f.remote, inUse)) post({ type: 'version', built: f.remote.built });
+}
+
+/** "Check for dictionary updates now": runs regardless of the setting and of a remembered "Not now". */
+async function checkNow() {
+  if (!hasCaches || download) { post({ type: 'checkResult', status: download ? 'busy' : 'unreachable' }); return; }
+  const f = await findUpdate({ ...deps(), inUse });
+  if (f.status === 'available') { postOffer(f, true); post({ type: 'checkResult', status: 'available' }); return; }
+  if (f.status === 'uptodate' && allMatch(f.remote, inUse)) post({ type: 'version', built: f.remote.built });
+  post({ type: 'checkResult', status: f.status });
+}
+
+/** The bar's Download / Try again: all packs of the offer, or nothing (partial data is deleted). */
+async function startDownload() {
+  if (!offer || download || !hasCaches) return;
+  download = new AbortController();
+  const r = await downloadPacks({
+    ...deps(), remote: offer.remote, packs: offer.packs, inUse, signal: download.signal, allOrNothing: true,
+    onProgress: (pack, pct) => post({ type: 'downloadProgress', pack, pct }),
   });
-  if (r.downloaded.length) post({ type: 'updateReady', built: r.remote.built, packs: r.downloaded });
-  if (r.allMatch && r.remote) post({ type: 'version', built: r.remote.built }); // every pack equals the published one
+  download = null;
+  if (r.ok) offer = null;
+  post({ type: 'downloadDone', ok: r.ok, cancelled: r.cancelled });
 }
 
 // ---------- messages ----------
@@ -148,6 +194,12 @@ self.onmessage = (ev) => {
   } else if (m.type === 'settings') {
     if (m.updates) settings.updates = m.updates;
     settings.connectionType = m.connectionType || undefined;
+  } else if (m.type === 'checkNow') {
+    checkNow();
+  } else if (m.type === 'download') {
+    startDownload();
+  } else if (m.type === 'cancelDownload') {
+    if (download) download.abort();
   } else if (m.type === 'entry') {
     if (store && entryReady(m)) answerEntry(m);
     else pendingEntries.push(m);

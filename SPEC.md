@@ -450,3 +450,29 @@ installed app download the whole data set again (about 55 MB), although the dict
   `ethernet`); when the browser does not report the connection type, the choice shows the note
   `This device does not report its connection type; updates download on any connection.` and behaves as `Always`.
   The same choice does NOT limit app-code updates (they are under 1 MB).
+
+## 15. Ask before downloading dictionary updates (added 2026-11-13)
+
+- The settings choice `Download dictionary updates` becomes four options: `Ask each time` (NEW DEFAULT, also for
+  users who never changed the old setting; a stored `Always`, `Only on Wi-Fi` or `Never` is kept), `Always`,
+  `Only on Wi-Fi`, `Never`.
+- `version.json` gains, per pack, `"gz": <sum of the gzip sizes (zlib level 6) of the pack's files, in bytes>`. The
+  build writes it; the CI reuse path adds it when the published file lacks it. Adding `gz` never changes `hash` or
+  `built`. `verify-data` checks it is a positive integer when present.
+- With `Ask each time`: when the update check (14.3) finds at least one pack whose remote hash differs, nothing is
+  downloaded. A bar appears under the search row (above the results, not a blocking dialog, it never takes focus):
+  `New dictionary data is available (<remote built date>, about <N> MB).` + three buttons:
+  `Download` · `Not now` · `Never ask`. `<N>` = the sum of `gz` over the differing packs, in MB rounded up to a whole
+  number; when a differing pack has no `gz`, the text is `up to <N> MB` using its `bytes`.
+  - `Download`: the bar becomes `Downloading dictionary data: <pack> <percent>%` with a `Cancel` button; on success
+    `Dictionary data updated. It is used the next time the app starts.` with a `Close` button; on failure or cancel
+    `The download did not finish. Nothing was changed.` with `Try again` and `Close`. Partial downloads are deleted.
+  - `Not now`: the bar closes and this exact update (the set of remote hashes) is remembered in localStorage and not
+    offered again; a later, different update is offered again.
+  - `Never ask`: sets the setting to `Never` and closes the bar.
+- The settings panel always has a button `Check for dictionary updates now`, which runs the check regardless of the
+  setting and of a remembered `Not now`, and shows the bar, or the line `Dictionary data is up to date.`, or
+  `Could not reach the update server.`
+- On `Only on Wi-Fi` when the connection is not Wi-Fi or ethernet: behave like `Ask each time` (show the bar)
+  instead of skipping silently.
+- App-code updates (section 12) are unchanged and never ask.

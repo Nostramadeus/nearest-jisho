@@ -42,12 +42,12 @@ function writeVersion(release, packs) {
   fs.writeFileSync(path.join(OUT, 'version.json'), JSON.stringify(v, null, 1) + '\n');
 }
 
-/** SPEC 14.2: write "files" and "hash" of every pack into version.json (built is not touched). */
+/** SPEC 14.2 / 15: write "files", "hash" and "gz" of every pack into version.json (built is not touched). */
 function writeHashes() {
   const v = readVersion();
   addPackHashes(OUT, v);
   fs.writeFileSync(path.join(OUT, 'version.json'), JSON.stringify(v, null, 1) + '\n');
-  log(`version.json hashes: ${Object.entries(v.packs || {}).map(([p, e]) => `${p} ${e.hash || 'MISSING'}`).join(', ')}`);
+  log(`version.json hashes: ${Object.entries(v.packs || {}).map(([p, e]) => `${p} ${e.hash || 'MISSING'} gz ${e.gz}`).join(', ')}`);
 }
 
 async function main() {

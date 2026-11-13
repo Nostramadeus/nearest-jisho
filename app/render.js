@@ -258,3 +258,24 @@ export function favoritesHtml(list, removed = new Set()) {
   }
   return html + '</ul>';
 }
+
+const PACK_WORDS = { words: 'words', names: 'names', wikt: 'Wiktionary', sent: 'sentences', kanji: 'kanji' };
+
+/**
+ * The update bar under the search row (SPEC 15). state:
+ * { kind: 'offer', text } | { kind: 'progress', pack, pct } | { kind: 'done', text } | { kind: 'failed', text }
+ */
+export function updateBarHtml(state) {
+  const btn = (act, label) => `<button type="button" data-update="${act}">${label}</button>`;
+  switch (state.kind) {
+    case 'offer':
+      return `<span class="msg">${esc(state.text)}</span>${btn('download', 'Download')}${btn('notnow', 'Not now')}${btn('never', 'Never ask')}`;
+    case 'progress':
+      return `<span class="msg">Downloading dictionary data: ${esc(PACK_WORDS[state.pack] || state.pack)} ${esc(state.pct)}%</span>${btn('cancel', 'Cancel')}`;
+    case 'done':
+      return `<span class="msg">${esc(state.text)}</span>${btn('close', 'Close')}`;
+    case 'failed':
+      return `<span class="msg">${esc(state.text)}</span>${btn('retry', 'Try again')}${btn('close', 'Close')}`;
+  }
+  return '';
+}

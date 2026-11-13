@@ -222,8 +222,7 @@ test('settings: Always / Only on Wi-Fi / Never, and the no-connection-type note'
       if (!expectFetch) assert.match(r.skipped, /policy/);
     }
   } finally { A.cleanup(); B.cleanup(); }
-  const html = appFile('index.html');
-  assert.match(html, /<legend>Download dictionary updates<\/legend>\s*<label><input type="radio" name="updates" value="always"> Always<\/label>\s*<label><input type="radio" name="updates" value="wifi"> Only on Wi-Fi<\/label>\s*<label><input type="radio" name="updates" value="never"> Never<\/label>\s*<p id="wifinote" class="dim" hidden><\/p>/);
-  assert.match(appFile('main.js'), /S\.updates = store\.get\('nj-updates', 'always'\)/);
+  // markup and default choice: see updates.test.mjs (SPEC 15: four options, default Ask each time)
+  assert.ok(appFile('index.html').includes('<p id="wifinote" class="dim" hidden></p>'));
   assert.match(appFile('sw.js'), /'\.\/datasets\.js'/);
 });

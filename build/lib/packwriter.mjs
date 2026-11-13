@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import zlib from 'node:zlib';
 
 const MAX_KEYS_JSON = 60 * 1024 * 1024; // SPEC 3: switch to binary layout above this size
 
@@ -192,13 +193,21 @@ export function packHash(dir, files) {
   return h.digest('hex').slice(0, 16);
 }
 
-/** Add "files" and "hash" to every pack entry of a version.json object whose files exist in `dir`. */
+/** SPEC 15: sum of the gzip sizes (zlib level 6) of the pack's files, in bytes (the download size estimate). */
+export function packGz(dir, files) {
+  let sum = 0;
+  for (const f of files) sum += zlib.gzipSync(fs.readFileSync(path.join(dir, f)), { level: 6 }).length;
+  return sum;
+}
+
+/** Add "files", "hash" and "gz" to every pack entry of a version.json object whose files exist in `dir`. */
 export function addPackHashes(dir, version) {
   for (const [pack, entry] of Object.entries(version.packs || {})) {
     const files = packFileList(dir, pack);
     if (!files.every((f) => fs.existsSync(path.join(dir, f)))) continue;
     entry.files = files;
     entry.hash = packHash(dir, files);
+    entry.gz = packGz(dir, files);
   }
   return version;
 }
