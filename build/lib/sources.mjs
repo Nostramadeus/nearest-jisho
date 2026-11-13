@@ -35,9 +35,12 @@ export async function latestRelease() {
  * Returns Map(seq -> fn) holding only entries with a rank < 999999.
  */
 export async function loadPriority() {
-  const url = 'https://www.edrdg.org/pub/Nihongo/JMdict_e.gz';
-  log(`priority tags from ${url}`);
+  // The EDRDG web server times out now and then: 5 tries with 20 s pauses, then one try at the FTP mirror over http.
+  const primary = 'https://www.edrdg.org/pub/Nihongo/JMdict_e.gz';
+  const fallback = 'http://ftp.edrdg.org/pub/Nihongo/JMdict_e.gz';
   for (let attempt = 0; ; attempt++) {
+    const url = attempt < 5 ? primary : fallback;
+    log(`priority tags from ${url}`);
     try {
       const res = await fetchOk(url);
       const src = Readable.fromWeb(res.body).pipe(zlib.createGunzip());
@@ -64,8 +67,9 @@ export async function loadPriority() {
       log(`  ${entries} entries, ${out.size} with priority tags`);
       return out;
     } catch (e) {
-      if (attempt >= 2) throw e;
+      if (attempt >= 5) throw e;
       log(`  retry (${e.message})`);
+      await new Promise((r) => setTimeout(r, 20000));
     }
   }
 }
