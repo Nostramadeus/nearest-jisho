@@ -91,7 +91,7 @@ test('21.2 / 21.3 bar texts; chips show the spelling only', () => {
   const r2 = run('naiso');
   const r3 = run('dictonary');
   assert.equal(r3.anyExact, false);
-  assert.match(suggestionBarHtml(r3), /^<span class="dymtext">No exact match for &quot;dictonary&quot;\. Did you mean:<\/span><button type="button" class="sugg" data-q="dictionary" title="one letter missing"><span>dictionary<\/span><\/button>$/);
+  assert.match(suggestionBarHtml(r3), /^<span class="dymtext">No exact match\. Did you mean:<\/span><button type="button" class="sugg" data-q="dictionary" title="one letter missing"><span>dictionary<\/span><\/button>$/);
   assert.match(suggestionBarHtml(run('かいさ')), /<span lang="ja">かいしゃ<\/span>/);
   assert.equal(suggestionBarHtml({ suggestions: [] }), '');
   assert.ok(r2.suggestions.length > 0);
