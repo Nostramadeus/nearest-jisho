@@ -17,7 +17,7 @@ Results appear while you type. Search in English, kana, kanji or romaji.
 | Platform | How to install |
 |---|---|
 | Android | Download the `.apk` and open it. Allow "install unknown apps" once when the phone asks. |
-| Windows | Download and run the `-windows-setup.exe`. On the blue warning, click "More info", then "Run anyway". |
+| Windows | Download and run the `-windows-setup.exe`. On the blue warning, click "More info", then "Run anyway". It uses Microsoft Edge WebView2 (already part of Windows 10 and 11; the setup downloads it if missing). |
 | Linux | Download the `.AppImage`, run `chmod +x` on it, then run it. |
 | iPhone and Mac | Open the web address. iPhone: Share, then "Add to Home Screen". Mac: install it from the browser (Chrome/Edge install button, Safari "Add to Dock"). |
 
@@ -63,7 +63,7 @@ node --test test/                     # unit and engine tests on a small hand-ma
 | `build/` | data build scripts |
 | `tools/` | `query.mjs` command line, `make-icons.mjs` |
 | `test/` | `node --test test/` |
-| `packaging/` | Android (Capacitor) and desktop (Electron) wrappers; built only on GitHub Actions by `.github/workflows/build.yml` |
+| `packaging/` | Android (Capacitor) and desktop (Tauri) wrappers; built only on GitHub Actions by `.github/workflows/build.yml` |
 | `SPEC.md` | the plan of record |
 
 ## Licences

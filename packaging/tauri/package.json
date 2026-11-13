@@ -1,0 +1,10 @@
+{
+  "name": "nearest-jisho-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Desktop wrapper for Nearest Jisho (Tauri 2). Built on GitHub Actions only.",
+  "license": "MIT",
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
+  }
+}

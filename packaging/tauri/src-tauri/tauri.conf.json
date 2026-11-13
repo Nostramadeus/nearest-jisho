@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Nearest Jisho",
+  "version": "1.0.0",
+  "identifier": "io.github.nostramadeus.nearestjisho",
+  "build": {
+    "frontendDist": "../placeholder"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "appimage"],
+    "publisher": "Nostramadeus",
+    "homepage": "https://nostramadeus.github.io/nearest-jisho/",
+    "category": "Education",
+    "shortDescription": "Offline Japanese-English dictionary",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../www": "web"
+    },
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

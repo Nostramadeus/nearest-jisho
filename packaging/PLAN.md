@@ -38,7 +38,41 @@ release and keepalive: `contents: write`; others read only).
 - Assets must not be compressed twice: add `aaptOptions { noCompress 'dat', 'off', 'meta', 'json' }` only if the
   default build fails or the WebView cannot read the files; otherwise leave defaults.
 
-## 3. Desktop (Windows .exe, Linux .AppImage) with Electron
+## 3b. Desktop with Tauri 2 (replaces section 3; decided after the first release)
+
+Reason: the Electron setup file is 154 MB because it carries a full copy of Chromium. Tauri uses the web view that
+the system already has (WebView2 on Windows, WebKitGTK on Linux), so the setup file is about the size of the data.
+The earlier worry (Tauri embedding 173 MB of data in the program) is avoided by NOT embedding the web files.
+
+- Folder `packaging/tauri/` with `src-tauri/` (`Cargo.toml`, `Cargo.lock`, `tauri.conf.json`, `build.rs`,
+  `src/main.rs`, `capabilities/` empty default) and `placeholder/index.html` (one line; this is `frontendDist`,
+  so nothing large is compiled into the program). Folder `packaging/desktop/` (Electron) is deleted once the Tauri
+  build is green on both systems.
+- The real web files ship as bundle `resources` (the `app/` folder with `data/`, placed under a folder named `web`).
+- `main.rs`: at start, resolve the resource folder `web`, start a small HTTP server on a background thread
+  (`tiny_http` crate) on `127.0.0.1:47831` (if busy try 47832..47840) with the same rules as `tools/serve.mjs`
+  (path stays inside the root, `index.html` for folders, the same content types, `cache-control: no-cache`, HEAD and
+  GET only). Then create ONE window in Rust with `WebviewUrl::External("http://127.0.0.1:<port>/")`: title
+  `Nearest Jisho`, 1100x800, min 360x480, no menu. No Tauri commands, no IPC, no capabilities granted to the page.
+- `tauri-plugin-single-instance`: a second start focuses the first window.
+- Links to other origins never load inside the app: an initialization script turns a click on an `a[href]` whose
+  origin differs from the page origin into `window.location.href = url`, and the window's `on_navigation` handler
+  opens any URL whose origin is not `http://127.0.0.1:<port>` in the system browser (`tauri-plugin-opener`) and
+  returns false.
+- Bundle: identifier `io.github.nostramadeus.nearestjisho`, productName `Nearest Jisho`, version from the data
+  date (`YYYY.M.D`), icons generated in CI from `app/icons/icon-512.png` with `tauri icon`. Targets: Windows `nsis`
+  (`installMode: currentUser`, WebView2 `downloadBootstrapper`), Linux `appimage`. x64 only. No updater, no signing.
+  Output names unchanged: `nearest-jisho-<date>-windows-setup.exe`, `nearest-jisho-<date>-linux.AppImage`.
+- CI: Rust stable + `Swatinem/rust-cache`; Linux runner ubuntu-22.04 with the WebKitGTK 4.1 build packages. Build with
+  the Tauri CLI from npm (`@tauri-apps/cli`, pinned, lock file committed) or `cargo tauri`; whichever, pinned.
+- Smoke test: same checks as section 3 (the three URLs answer 200 within 30 s, process alive 10 s later), run on the
+  built program (Windows: the unpacked exe next to its resources; Linux: the AppImage with
+  `--appimage-extract-and-run` under `xvfb-run`). Also report the size of both output files.
+- Local machine: only `cargo generate-lockfile` is allowed (no `cargo build`, no `cargo check`).
+- Fallback: if the Linux AppImage is not green after 3 workflow attempts, keep Electron for Linux only, ship Tauri
+  for Windows, and say so in the report.
+
+## 3. Desktop with Electron (SUPERSEDED by 3b; kept for history)
 
 Electron is chosen over Tauri because the app is 173 MB of loose data files; Electron serves them from disk unchanged.
 

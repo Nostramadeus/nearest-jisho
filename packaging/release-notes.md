@@ -4,7 +4,7 @@ Dictionary data built @DATE@ (UTC).
 ## The three files
 
 - `nearest-jisho-@DATE@.apk`: the Android app. Open the file on the phone to install it.
-- `nearest-jisho-@DATE@-windows-setup.exe`: the Windows installer (64-bit). It installs for your user account only and does not need administrator rights.
+- `nearest-jisho-@DATE@-windows-setup.exe`: the Windows installer (64-bit). It installs for your user account only and does not need administrator rights. The app uses Microsoft Edge WebView2, which Windows 10 and 11 already have; if it is missing, the installer downloads it.
 - `nearest-jisho-@DATE@-linux.AppImage`: the Linux app (64-bit). Make it executable with `chmod +x`, then run it.
 
 ## Warnings you will see (expected)

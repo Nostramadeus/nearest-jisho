@@ -266,9 +266,10 @@ ids desc), search again with each -> tier 3, and set didYouMean to the corrected
   · `kusa` -> 草 with a slang sense (JMdict or Wiktionary) visible · `tanaka` -> 田中 in Names.
 
 ## 8. Packaging (later lane; nothing here is built locally)
-GitHub Actions only: data build -> Pages deploy; Capacitor -> signed Android .apk; Tauri 2 -> Windows .exe (NSIS,
-WebView2 bootstrapper) and Linux .AppImage; attach to a GitHub Release; monthly schedule that also commits a
-`DATA-VERSION` bump so the schedule is not auto-disabled. Details are written when that lane starts.
+Built on GitHub Actions only (`.github/workflows/build.yml`); the details are in `packaging/PLAN.md`. The data build
+deploys the web app to GitHub Pages; Capacitor wraps it into a signed Android .apk; Tauri 2 wraps it into a Windows
+setup .exe (NSIS, WebView2 bootstrapper) and a Linux .AppImage; the three files go into a GitHub Release, on demand
+and by a monthly schedule that also commits a `DATA-VERSION` bump so the schedule is not auto-disabled.
 
 ## 9. Public-repo rules (every worker)
 - Never commit or push; the coordinator does it. Never put a real name, e-mail, home path (`C:\Users\...`),

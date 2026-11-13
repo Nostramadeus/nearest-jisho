@@ -183,38 +183,77 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: packaging/desktop
+        working-directory: packaging/tauri
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           name: app
-          path: packaging/desktop/app
+          path: packaging/tauri/www
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - run: npm ci
-      - name: Build Windows installer
-        if: runner.os == 'Windows'
-        run: npx electron-builder --win --x64 --publish never
-      - name: Build Linux AppImage
-        if: runner.os == 'Linux'
-        run: npx electron-builder --linux --x64 --publish never
-      - name: Smoke test (Windows)
-        if: runner.os == 'Windows'
-        run: node smoke.mjs "dist/win-unpacked/Nearest Jisho.exe"
-      - name: Smoke test (Linux)
+      - name: Rust stable
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustc --version
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packaging/tauri/src-tauri -> target
+      - name: Linux build packages (WebKitGTK 4.1)
         if: runner.os == 'Linux'
         run: |
-          command -v xvfb-run || { sudo apt-get update && sudo apt-get install -y xvfb; }
-          xvfb-run -a node smoke.mjs dist/linux-unpacked/nearest-jisho --no-sandbox
-      - run: ls -l dist
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev xvfb
+      - run: npm ci
+      - name: Icons and version
+        run: |
+          npx tauri icon www/icons/icon-512.png
+          node -e "
+            const fs = require('fs'), f = 'src-tauri/tauri.conf.json';
+            const c = JSON.parse(fs.readFileSync(f, 'utf8'));
+            c.version = process.env.NJ_DATE.split('-').map(Number).join('.');
+            fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
+            console.log('version', c.version);
+          "
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        run: npx tauri build --bundles nsis
+      - name: Build Linux AppImage
+        if: runner.os == 'Linux'
+        run: npx tauri build --bundles appimage
+      - name: Collect output
+        run: |
+          B=src-tauri/target/release/bundle
+          mkdir -p out
+          if [ "$RUNNER_OS" = Windows ]; then
+            ls -l "$B/nsis"
+            cp "$B"/nsis/*-setup.exe "out/nearest-jisho-$NJ_DATE-windows-setup.exe"
+          else
+            ls -l "$B/appimage"
+            cp "$B"/appimage/*.AppImage "out/nearest-jisho-$NJ_DATE-linux.AppImage"
+            chmod +x out/*.AppImage
+          fi
+          ls -l out
+      - name: Smoke test (Windows, unpacked exe next to its resources)
+        if: runner.os == 'Windows'
+        run: |
+          ls src-tauri/target/release/web/data
+          node smoke.mjs src-tauri/target/release/nearest-jisho.exe
+      - name: Smoke test (Linux, AppImage)
+        if: runner.os == 'Linux'
+        env:
+          WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+        run: |
+          RUN=""
+          command -v dbus-run-session > /dev/null && RUN="dbus-run-session --"
+          $RUN xvfb-run -a node smoke.mjs "$PWD/out/nearest-jisho-$NJ_DATE-linux.AppImage" --appimage-extract-and-run
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ runner.os }}
-          path: |
-            packaging/desktop/dist/nearest-jisho-*.exe
-            packaging/desktop/dist/nearest-jisho-*.AppImage
+          path: packaging/tauri/out/*
           if-no-files-found: error
           compression-level: 0
 
