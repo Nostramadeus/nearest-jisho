@@ -10,6 +10,10 @@ on:
         description: Publish a GitHub Release with the app files
         type: boolean
         default: true
+      rebuild_data:
+        description: Rebuild the dictionary data from the sources (otherwise the published data is reused)
+        type: boolean
+        default: false
   schedule:
     - cron: '17 3 1 * *'
 
@@ -24,13 +28,49 @@ jobs:
       date: ${{ steps.meta.outputs.date }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # to see whether a push changed files under build/
       - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: Unit tests
         run: node --test test/
-      - name: Build data
-        run: node build/build-data.mjs
+      # SPEC 14.1: rebuild only on schedule, on dispatch with rebuild_data, when a push changed build/, or when
+      # reusing the published data fails; otherwise reuse it (built and hashes stay the same).
+      - name: Get data (rebuild or reuse)
+        env:
+          EVENT: ${{ github.event_name }}
+          REBUILD_INPUT: ${{ github.event.inputs.rebuild_data }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          reason=""
+          if [ "$EVENT" = "schedule" ]; then
+            reason="scheduled monthly build"
+          elif [ "$EVENT" = "workflow_dispatch" ] && [ "$REBUILD_INPUT" = "true" ]; then
+            reason="workflow_dispatch with rebuild_data=true"
+          elif [ "$EVENT" = "push" ]; then
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              reason="push without a known previous commit"
+            elif git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -q '^build/'; then
+              reason="push changed files under build/"
+            fi
+          fi
+          if [ -z "$reason" ]; then
+            if node tools/reuse-data.mjs > "$RUNNER_TEMP/reuse.txt" 2>&1; then
+              if node build/verify-data.mjs > "$RUNNER_TEMP/reuse-verify.txt" 2>&1; then
+                echo "::notice::Data path: REUSED the published data ($(tail -n 1 "$RUNNER_TEMP/reuse.txt"); event $EVENT, no rebuild trigger)"
+                exit 0
+              fi
+              tail -n 20 "$RUNNER_TEMP/reuse-verify.txt"
+              reason="verify-data failed on the reused data"
+            else
+              cat "$RUNNER_TEMP/reuse.txt"
+              reason="$(tail -n 1 "$RUNNER_TEMP/reuse.txt")"
+            fi
+            rm -rf app/data
+          fi
+          echo "::notice::Data path: REBUILD from the sources ($reason)"
+          node build/build-data.mjs
       - name: Verify data
         run: node build/verify-data.mjs
       - name: Acceptance queries

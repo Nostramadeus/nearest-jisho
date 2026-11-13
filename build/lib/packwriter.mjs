@@ -2,6 +2,7 @@
 // Usable from the build and from test helpers (fixture packs).
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 const MAX_KEYS_JSON = 60 * 1024 * 1024; // SPEC 3: switch to binary layout above this size
 
@@ -161,4 +162,43 @@ function u32le(u32) {
   // Uint32Array is little-endian on every platform node runs on; assert anyway.
   if (new Uint8Array(new Uint32Array([1]).buffer)[0] !== 1) throw new Error('big-endian host not supported');
   return Buffer.from(u32.buffer, u32.byteOffset, u32.byteLength);
+}
+
+// ---- SPEC 14.2: per-pack file lists and hashes in version.json ----
+
+/** Files of one pack as they exist in `dir`, in a fixed order (the order the hash is computed over). */
+export function packFileList(dir, pack) {
+  if (pack === 'kanji') return ['kanji.json'];
+  if (pack === 'sent') return ['sent.dat', 'sent.off', 'sent.keys.json'];
+  const json = [`${pack}.dat`, `${pack}.off`, `${pack}.meta`, `${pack}.keys.json`];
+  if (fs.existsSync(path.join(dir, `${pack}.keys.json`))) return json;
+  const out = [`${pack}.dat`, `${pack}.off`, `${pack}.meta`];
+  for (const s of ['r', 'k', 'e']) {
+    if (fs.existsSync(path.join(dir, `${pack}.${s}.txt`))) out.push(`${pack}.${s}.txt`, `${pack}.${s}.ptr`, `${pack}.${s}.ids`);
+  }
+  return out;
+}
+
+/** First 16 hex digits of sha256 over the files' bytes, in the listed order (streamed, 1 MB at a time). */
+export function packHash(dir, files) {
+  const h = createHash('sha256');
+  const buf = Buffer.alloc(1 << 20);
+  for (const f of files) {
+    const fd = fs.openSync(path.join(dir, f), 'r');
+    try {
+      for (let n; (n = fs.readSync(fd, buf, 0, buf.length, null)) > 0;) h.update(buf.subarray(0, n));
+    } finally { fs.closeSync(fd); }
+  }
+  return h.digest('hex').slice(0, 16);
+}
+
+/** Add "files" and "hash" to every pack entry of a version.json object whose files exist in `dir`. */
+export function addPackHashes(dir, version) {
+  for (const [pack, entry] of Object.entries(version.packs || {})) {
+    const files = packFileList(dir, pack);
+    if (!files.every((f) => fs.existsSync(path.join(dir, f)))) continue;
+    entry.files = files;
+    entry.hash = packHash(dir, files);
+  }
+  return version;
 }

@@ -47,6 +47,13 @@
       <label><input type="radio" name="theme" value="light"> Light</label>
       <label><input type="radio" name="theme" value="dark"> Dark</label>
     </fieldset>
+    <fieldset>
+      <legend>Download dictionary updates</legend>
+      <label><input type="radio" name="updates" value="always"> Always</label>
+      <label><input type="radio" name="updates" value="wifi"> Only on Wi-Fi</label>
+      <label><input type="radio" name="updates" value="never"> Never</label>
+      <p id="wifinote" class="dim" hidden></p>
+    </fieldset>
     <p class="dim">Dictionary data: <span id="built">loading</span></p>
     <p class="dim">App version: <span id="appversion">checking</span></p>
     <p class="dim">Offline cache: <span id="offline">checking</span></p>

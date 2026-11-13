@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { OUT } from './lib/util.mjs';
+import { packHash } from './lib/packwriter.mjs';
 
 let failures = 0;
 const fail = (msg) => { failures++; console.log('FAIL', msg); };
@@ -135,6 +136,21 @@ for (const f of ['kanji.json', 'version.json']) {
     else ok(`version.json: ${JSON.stringify(o)}`);
   } catch (e) { fail(`${f}: ${e.message}`); }
 }
+
+// SPEC 14.2: every pack in version.json lists its files, they exist, and the hash matches
+try {
+  const v = JSON.parse(fs.readFileSync(path.join(OUT, 'version.json'), 'utf8'));
+  for (const pack of ['words', 'names', 'wikt', 'sent', 'kanji']) {
+    const e = v.packs && v.packs[pack];
+    if (!e) { fail(`version.json: pack ${pack} not listed`); continue; }
+    if (!Array.isArray(e.files) || !e.files.length) { fail(`version.json: ${pack} has no "files"`); continue; }
+    const missing = e.files.filter((f) => !fs.existsSync(path.join(OUT, f)));
+    if (missing.length) { fail(`version.json: ${pack} files missing: ${missing.join(', ')}`); continue; }
+    if (!/^[0-9a-f]{16}$/.test(e.hash || '')) { fail(`version.json: ${pack} has no valid "hash"`); continue; }
+    const h = packHash(OUT, e.files);
+    h === e.hash ? ok(`${pack}: hash ${h} matches (${e.files.join(', ')})`) : fail(`${pack}: hash ${h} != version.json ${e.hash}`);
+  }
+} catch (err) { fail(`version.json hashes: ${err.message}`); }
 
 console.log(failures ? `${failures} FAILURES` : 'ALL CHECKS PASSED');
 process.exit(failures ? 1 : 0);

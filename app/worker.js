@@ -1,25 +1,21 @@
-// Web Worker shell (SPEC 6): picks the data set, loads packs, runs the engine, posts results.
-import { PackStore, PACKS, SENT, LOAD_ORDER, packFiles, packFilesBinary, KANJI_FILE, VERSION_FILE } from './search/packs.js';
+// Web Worker shell (SPEC 6, 14.3): picks the data in use pack by pack, loads packs, runs the engine, posts results.
+import { PackStore, SENT, LOAD_ORDER } from './search/packs.js';
 import { search } from './search/engine.js';
 import { findEntry, entryData } from './search/entry.js';
-
-const DATA_BASE = './data/';
-const REMOTE_BASE = 'https://nostramadeus.github.io/nearest-jisho/data/';
-const SET_PREFIX = 'nj-data-';          // Cache Storage sets downloaded by the update check
-const BUNDLED_CACHE = 'nj-bundled-data'; // filled by sw.js for ./data/ requests
-const COMPLETE = 'complete.json';        // marker written last; a set without it is ignored
+import { chooseData, readerFor, versionOf, builtOf, checkUpdates, filesOf, DATA_BASE, BUNDLED_CACHE } from './datasets.js';
 
 const post = (m) => self.postMessage(m);
 const hasCaches = typeof caches !== 'undefined';
 
 let store = null;
-let current = null; // { kind: 'bundled' | 'cache', cacheName, version }
+let inUse = {};     // pack -> { source: 'bundled' | 'cache', cacheName?, entry, built } (datasets.js)
 let latestSeq = 0;
 const loaded = {};
 const failed = {};
 let kanjiDone = false;
 const pendingEntries = []; // entry requests that wait for their pack (direct visit to an entry address)
 let started = false;      // all packs attempted
+const settings = { updates: 'always', connectionType: undefined }; // from the page (SPEC 14.3)
 
 // ---------- reading files ----------
 
@@ -47,64 +43,16 @@ async function readResponse(resp, onBytes) {
   return out;
 }
 
-function makeReader(source) {
-  if (source.kind === 'cache') {
-    return async (name, onBytes) => {
-      const cache = await caches.open(source.cacheName);
-      const resp = await cache.match(REMOTE_BASE + name);
-      if (!resp) throw new Error(`missing ${name}`);
-      return readResponse(resp, onBytes);
-    };
-  }
-  return async (name, onBytes) => readResponse(await fetch(DATA_BASE + name), onBytes);
-}
-
-// ---------- choosing the data set ----------
-
-async function cacheSets() {
-  if (!hasCaches) return [];
-  const out = [];
-  for (const name of await caches.keys()) {
-    if (!name.startsWith(SET_PREFIX)) continue;
-    try {
-      const cache = await caches.open(name);
-      const done = await cache.match(REMOTE_BASE + COMPLETE);
-      const ver = await cache.match(REMOTE_BASE + VERSION_FILE);
-      if (!done || !ver) { await caches.delete(name); continue; } // partial download: discard
-      out.push({ kind: 'cache', cacheName: name, version: await ver.json() });
-    } catch { /* ignore broken set */ }
-  }
-  return out;
-}
-
-async function chooseSource() {
-  const candidates = [];
-  try {
-    const resp = await fetch(DATA_BASE + VERSION_FILE);
-    if (resp.ok) candidates.push({ kind: 'bundled', version: await resp.json() });
-  } catch { /* no bundled data */ }
-  candidates.push(...await cacheSets());
-  if (!candidates.length) return null;
-  // newest `built` wins; on a tie prefer a Cache Storage set (already downloaded, no network)
-  candidates.sort((a, b) => (a.version.built < b.version.built ? 1 : a.version.built > b.version.built ? -1
-    : (a.kind === 'cache' ? -1 : 1)));
-  const pick = candidates[0];
-  if (hasCaches) {
-    for (const c of candidates) if (c.kind === 'cache' && c !== pick) caches.delete(c.cacheName).catch(() => {});
-    // the bundled copy cached by sw.js is outdated once a downloaded set is in use
-    if (pick.kind === 'cache') caches.delete(BUNDLED_CACHE).catch(() => {});
-  }
-  return pick;
-}
-
 // ---------- loading ----------
 
 async function start() {
-  current = await chooseSource();
-  if (!current) { post({ type: 'error', message: 'Dictionary data not found.' }); return; }
-  store = new PackStore(makeReader(current));
-  store.version = current.version;
-  post({ type: 'version', built: current.version.built });
+  const deps = { caches: hasCaches ? caches : null, fetch: (...a) => fetch(...a) };
+  ({ inUse } = await chooseData(deps));
+  if (!Object.keys(inUse).length) { post({ type: 'error', message: 'Dictionary data not found.' }); return; }
+  if (hasCaches) dropBundledCopies();
+  store = new PackStore(readerFor(inUse, { ...deps, read: readResponse }));
+  store.version = versionOf(inUse);
+  post({ type: 'version', built: builtOf(inUse) });
   // SPEC 13.4 load order: words, kanji, wikt, sent, names. A missing or failed pack never blocks the others.
   for (const p of LOAD_ORDER) {
     if (p === 'kanji') {
@@ -113,7 +61,7 @@ async function start() {
       flushEntries();
       continue;
     }
-    if (!current.version.packs || !current.version.packs[p]) continue;
+    if (!inUse[p]) continue;
     try {
       const onProgress = (f) => post({ type: 'progress', pack: p, pct: Math.floor(f * 100) });
       post({ type: 'progress', pack: p, pct: 0 });
@@ -134,45 +82,28 @@ async function start() {
   checkUpdate();
 }
 
-// ---------- update check (SPEC 6) ----------
-
-async function fetchToCache(cache, name) {
-  const resp = await fetch(REMOTE_BASE + name, { cache: 'no-cache' });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${name}`);
-  await cache.put(REMOTE_BASE + name, resp);
+/** The sw.js copy of a bundled pack is not needed once a downloaded copy of that pack is in use. */
+async function dropBundledCopies() {
+  try {
+    const c = await caches.open(BUNDLED_CACHE);
+    for (const [p, u] of Object.entries(inUse)) {
+      if (u.source !== 'cache') continue;
+      for (const f of filesOf(p, u.entry)) await c.delete(new URL(DATA_BASE + f, self.location.href).href);
+    }
+  } catch { /* nothing to clean */ }
 }
+
+// ---------- update check (SPEC 14.3) ----------
 
 async function checkUpdate() {
   if (!hasCaches || (self.navigator && self.navigator.onLine === false)) return;
-  let remote;
-  try {
-    const resp = await fetch(REMOTE_BASE + VERSION_FILE, { cache: 'no-cache' });
-    if (!resp.ok) return;
-    remote = await resp.json();
-  } catch { return; }
-  if (!remote || !remote.built || !(remote.built > current.version.built)) return;
-  const name = SET_PREFIX + remote.built;
-  if ((await caches.keys()).includes(name)) {
-    const c = await caches.open(name);
-    if (await c.match(REMOTE_BASE + COMPLETE)) return; // already downloaded, used from the next start
-  }
-  const cache = await caches.open(name);
-  try {
-    for (const p of [...PACKS, SENT]) { // the sentence pack updates like every other pack (SPEC 13.4)
-      if (!remote.packs || !remote.packs[p]) continue;
-      try {
-        for (const f of packFiles(p)) await fetchToCache(cache, f);
-      } catch {
-        for (const f of packFilesBinary(p)) await fetchToCache(cache, f);
-      }
-    }
-    await fetchToCache(cache, KANJI_FILE);
-    await cache.put(REMOTE_BASE + VERSION_FILE, new Response(JSON.stringify(remote), { headers: { 'content-type': 'application/json' } }));
-    await cache.put(REMOTE_BASE + COMPLETE, new Response(JSON.stringify({ built: remote.built })));
-    post({ type: 'updateReady', built: remote.built });
-  } catch {
-    await caches.delete(name).catch(() => {}); // a failed or partial download changes nothing
-  }
+  const conn = settings.connectionType !== undefined ? settings.connectionType
+    : (self.navigator && self.navigator.connection && self.navigator.connection.type) || undefined;
+  const r = await checkUpdates({
+    caches, fetch: (...a) => fetch(...a), inUse, policy: settings.updates, connectionType: conn || undefined,
+  });
+  if (r.downloaded.length) post({ type: 'updateReady', built: r.remote.built, packs: r.downloaded });
+  if (r.allMatch && r.remote) post({ type: 'version', built: r.remote.built }); // every pack equals the published one
 }
 
 // ---------- messages ----------
@@ -192,7 +123,7 @@ function runSearch(m, phase) {
 function answerEntry(m) {
   const id = findEntry(store, m.pack, m.w, m.r);
   // sentences: still loading only while the sentence pack is listed and neither loaded nor failed
-  const sentLoading = !!(current.version.packs && current.version.packs[SENT]) && !loaded[SENT] && !failed[SENT];
+  const sentLoading = !!inUse[SENT] && !loaded[SENT] && !failed[SENT];
   const data = id < 0 ? null : entryData(store, m.pack, id, { ranking: m.ranking, sentLoading });
   post({ type: 'entry', id: m.id, pack: m.pack, w: m.w, r: m.r, data });
 }
@@ -214,6 +145,9 @@ self.onmessage = (ev) => {
     if (m.phase !== 'full') runSearch(m, 'fast');
     // a newer query cancels older work: the full phase runs only if nothing newer arrived meanwhile
     setTimeout(() => { if (m.seq === latestSeq) runSearch(m, 'full'); }, 0);
+  } else if (m.type === 'settings') {
+    if (m.updates) settings.updates = m.updates;
+    settings.connectionType = m.connectionType || undefined;
   } else if (m.type === 'entry') {
     if (store && entryReady(m)) answerEntry(m);
     else pendingEntries.push(m);

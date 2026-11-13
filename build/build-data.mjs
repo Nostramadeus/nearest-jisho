@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Data build entry (SPEC sections 2 and 3).
 //   node build/build-data.mjs [--only words,names,kanji,wikt,sent]
+//   node build/build-data.mjs --rehash      (only adds per-pack files + hash to version.json, SPEC 14.2)
 // Downloads the sources, writes the packs into app/data/, writes app/data/version.json.
 // Node stdlib only. Temporary files live in build/.cache/ and are deleted when their pack is written.
 import fs from 'node:fs';
@@ -10,11 +11,13 @@ import { ROOT, OUT, log, mb } from './lib/util.mjs';
 import { latestRelease, loadPriority, loadJiten, loadJlpt } from './lib/sources.mjs';
 import { buildWords, buildNames, buildKanji, buildWikt } from './lib/packs.mjs';
 import { buildSent } from './lib/sent.mjs';
+import { addPackHashes } from './lib/packwriter.mjs';
 
 const ALL = ['words', 'names', 'kanji', 'wikt', 'sent'];
 
 function parseArgs(argv) {
   let only = ALL;
+  if (argv.length === 1 && argv[0] === '--rehash') return { only: [], rehash: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--only') only = argv[++i].split(',');
@@ -39,8 +42,17 @@ function writeVersion(release, packs) {
   fs.writeFileSync(path.join(OUT, 'version.json'), JSON.stringify(v, null, 1) + '\n');
 }
 
+/** SPEC 14.2: write "files" and "hash" of every pack into version.json (built is not touched). */
+function writeHashes() {
+  const v = readVersion();
+  addPackHashes(OUT, v);
+  fs.writeFileSync(path.join(OUT, 'version.json'), JSON.stringify(v, null, 1) + '\n');
+  log(`version.json hashes: ${Object.entries(v.packs || {}).map(([p, e]) => `${p} ${e.hash || 'MISSING'}`).join(', ')}`);
+}
+
 async function main() {
-  const { only } = parseArgs(process.argv.slice(2));
+  const { only, rehash } = parseArgs(process.argv.slice(2));
+  if (rehash) { writeHashes(); return; } // node build/build-data.mjs --rehash: hashes for the data already in app/data
   const t0 = Date.now();
   // The canonical romaji used for space r is the app's own (app/search/romaji.js), so build and search agree.
   const romaji = await import(pathToFileURL(path.join(ROOT, 'app', 'search', 'romaji.js')).href);
@@ -88,6 +100,7 @@ async function main() {
       report.packs.sent = { skipped: e.message };
     }
   }
+  writeHashes();
   fs.mkdirSync(path.join(ROOT, 'build', '.cache'), { recursive: true });
   fs.writeFileSync(path.join(ROOT, 'build', '.cache', 'last-build-report.json'), JSON.stringify(report, null, 1));
   let total = 0;

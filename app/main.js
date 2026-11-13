@@ -1,6 +1,7 @@
 // UI (SPEC 5, 10, 11, 12). Talks to worker.js; renders Look A cards, the entry page and the Favorites view.
 import { esc, groupsHtml, entryHtml, favoritesHtml } from './render.js';
 import { createFavorites, favoritesText } from './favorites.js';
+import { WIFI_UNKNOWN_NOTE, wifiNoteShown } from './datasets.js';
 import { didYouMeanText } from './search/engine.js';
 import { parseEntryHash, entryHash } from './search/entry.js';
 
@@ -74,7 +75,7 @@ worker.onmessage = (ev) => {
       progressEl.textContent = m.message;
       break;
     case 'updateReady':
-      $('built').textContent += ` (newer data ${m.built} downloaded, used from the next start)`;
+      if (!/downloaded/.test($('built').textContent)) $('built').textContent += ` (updates downloaded: ${(m.packs || []).map((p) => PACK_LABEL[p] || p).join(', ')}; used from the next start)`;
       break;
     case 'result': onResult(m); break;
     case 'entry': onEntry(m); break;
@@ -362,6 +363,25 @@ for (const r of document.querySelectorAll('input[name="theme"]')) {
   });
 }
 applyTheme();
+
+// "Download dictionary updates" (SPEC 14.3); does not limit app-code updates (sw.js)
+const UPDATE_CHOICES = ['always', 'wifi', 'never'];
+S.updates = store.get('nj-updates', 'always');
+if (!UPDATE_CHOICES.includes(S.updates)) S.updates = 'always';
+function connectionType() {
+  try { return (navigator.connection && navigator.connection.type) || undefined; } catch { return undefined; }
+}
+function applyUpdateChoice() {
+  const note = $('wifinote');
+  note.textContent = WIFI_UNKNOWN_NOTE;
+  note.hidden = !wifiNoteShown(S.updates, connectionType());
+  worker.postMessage({ type: 'settings', updates: S.updates, connectionType: connectionType() });
+}
+for (const r of document.querySelectorAll('input[name="updates"]')) {
+  r.checked = r.value === S.updates;
+  r.addEventListener('change', () => { S.updates = r.value; store.set('nj-updates', S.updates); applyUpdateChoice(); });
+}
+applyUpdateChoice();
 
 // ---------- results ----------
 function onResult(m) {

@@ -418,3 +418,35 @@ Goal: the entry page shows up to 25 real sentences that use the word, like the p
 - The update check (section 6) treats `sent` like every other pack.
 - `DATA-LICENSE.md` and `app/about.html`: Tatoeba entry updated: "Example sentences from the Tatoeba project
   (https://tatoeba.org), CC BY 2.0 FR; each sentence links to its Tatoeba page, which names its authors."
+
+## 14. Small data updates (added 2026-11-13)
+
+Problem: `version.json.built` changes on every CI run, so every published code fix on a new day would make each
+installed app download the whole data set again (about 55 MB), although the dictionary data is the same.
+
+### 14.1 CI builds data only when it should
+- The `data` job REBUILDS the data from the sources only when: the event is `schedule`; or `workflow_dispatch` with a
+  new boolean input `rebuild_data` true (default false); or the push changed a file under `build/`; or reuse failed.
+- Otherwise it REUSES the published data: read `https://nostramadeus.github.io/nearest-jisho/data/version.json`,
+  download every file it lists (14.2) into `app/data/`, check each pack's hash, run `node build/verify-data.mjs`.
+  Any failure (404, hash mismatch, verify failure, no `files` list in the published version.json) -> rebuild.
+- The job log says in one line which path was taken and why. Tests and acceptance queries run in both cases.
+
+### 14.2 Per-pack hashes
+- `build/build-data.mjs` writes into `version.json`, for every pack (words, names, wikt, sent, kanji):
+  `"files": [file names in app/data]` and `"hash": "<first 16 hex of sha256 over the pack's files, in the listed order>"`.
+  `built` stays the UTC date of the real data build; it does not change when data is reused.
+- `build/verify-data.mjs` checks `files` exist and `hash` matches.
+
+### 14.3 App update check (replaces the "built is newer" rule of section 6)
+- For each pack: if the remote `hash` differs from the hash of the pack in use (bundled or downloaded), download only
+  that pack's files. A pack with an equal hash is never downloaded again. A data set with no hashes (older build)
+  counts as different once.
+- A downloaded pack is stored complete or not at all; the newest complete copy of each pack is used from the next
+  start, pack by pack. The settings line `Dictionary data: <built date>` shows the remote `built` once every pack
+  matches the remote hashes.
+- A new settings choice `Download dictionary updates`: `Always` (default) / `Only on Wi-Fi` / `Never`.
+  `Only on Wi-Fi` uses `navigator.connection.type` when the browser has it (download when it is `wifi` or
+  `ethernet`); when the browser does not report the connection type, the choice shows the note
+  `This device does not report its connection type; updates download on any connection.` and behaves as `Always`.
+  The same choice does NOT limit app-code updates (they are under 1 MB).
