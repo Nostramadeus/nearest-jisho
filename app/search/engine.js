@@ -209,7 +209,7 @@ function readingT3(store, ctx, pack, c, isKana, hits) {
       put(hits, { pack, id, tier: 3, cost: d / 10, space: 'r', key, keyLen: key.length });
       added = true;
     }
-    if (added) keys.push({ key, cost: d, pack, ids: ks.idsOf(i) });
+    if (added) keys.push({ key, cost: d, pack, ids: ks.idsOf(i), q: c });
   }
   return keys;
 }
@@ -551,10 +551,17 @@ export function search(store, query, opts = {}) {
         for (const p of packs) { t01 += countTier(hits[p], 1); t012 += countTier(hits[p], 2); }
         return t01 === 0 || (len >= 5 && t012 < 5);
       };
-      if (wantT3(jaPacks)) for (const p of jaPacks) t3keys.push(...readingT3(store, ctx, p, c, isKana, hits[p]));
+      // Ruling 2026-11-13 (tensia -> tensai): Latin queries are also compared as the raw typed letters, because
+      // canon() turns "tensia" into "tenshia" and hides the swapped letters. The lower cost wins.
+      const forms = [c];
+      if (kind === 'latin') {
+        const raw = typed.normalize('NFKC').toLowerCase().replace(/[^a-z]/g, '');
+        if (raw && raw !== c) forms.push(raw);
+      }
+      if (wantT3(jaPacks)) for (const p of jaPacks) for (const f of forms) t3keys.push(...readingT3(store, ctx, p, f, isKana, hits[p]));
       let namesKeys = [];
       if (has('names') && hits.words.size + hits.wikt.size < 5 && wantT3([...jaPacks, 'names'])) {
-        namesKeys = readingT3(store, ctx, 'names', c, isKana, hits.names);
+        for (const f of forms) namesKeys.push(...readingT3(store, ctx, 'names', f, isKana, hits.names));
       }
       const t01ja = countTier(hits.words, 1) + countTier(hits.wikt, 1);
       const pool = t3keys.length ? t3keys : namesKeys;
@@ -567,7 +574,7 @@ export function search(store, query, opts = {}) {
         }
         jaDym = {
           side: 'ja', typed, key: best.key, query: best.key,
-          reason: reasonFor(c, best.key, { keyboard: !isKana, soft: true, first: true }),
+          reason: reasonFor(best.q, best.key, { keyboard: !isKana, soft: true, first: true }),
         };
       }
     }

@@ -1,5 +1,5 @@
 // Service worker (SPEC 6): app shell and data files from Cache Storage; no re-download on page open.
-const SHELL_VERSION = '2026-11-13.1';
+const SHELL_VERSION = '2026-11-13.2';
 const SHELL_CACHE = `nj-shell-${SHELL_VERSION}`;
 const DATA_CACHE = 'nj-bundled-data';
 const SHELL = [

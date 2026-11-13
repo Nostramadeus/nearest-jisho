@@ -96,6 +96,8 @@ const groupOf = (res, id) => res.groups.find((g) => g.id === id);
 const ACCEPT = [
   ['jihso', 'fiction', (r) => head(firstResult(r)) === '辞書' && r.didYouMean?.key === 'jisho' && r.didYouMean?.reason === 'letters swapped',
     '辞書 first, did-you-mean "jisho", reason "letters swapped"'],
+  ['tensia', 'fiction', (r) => head(firstResult(r)) === '天才' && r.didYouMean?.key === 'tensai',
+    '天才 first, did-you-mean "tensai"'],
   ['shojo', 'fiction', (r) => { const t = r.groups[0].results.slice(0, 3).map(head); return t.includes('少女'); },
     '少女 or 処女 in top 3 with 少女 present'],
   ['gakko', 'fiction', (r) => head(firstResult(r)) === '学校', '学校 first'],

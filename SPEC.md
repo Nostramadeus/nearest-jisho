@@ -183,6 +183,8 @@ Sort key, ascending: (tier, costBucket, rank, keyLength, recordId), where
 Tier 2: common-flag records before others, then rank, then shorter key.
 Rulings 2026-11-13 (coordinator, after the first acceptance run; they override the sort key above where they differ):
 - Tier 3 sorts by EXACT cost, then rank (no cost bucket). `jihso`: jisho costs 0.5, jishou 0.7, so 辞書 is first.
+- Tier 3, LATIN queries: the distance is computed for BOTH `canon(query)` and the raw typed letters (lowercase a-z only);
+  the lower cost wins. (`tensia`: canon is `tenshia`, which hid the swap; raw `tensia` -> `tensai` costs 0.5, so 天才 is first.)
 - LATIN queries only: tiers 0 and 1 are merged into one block ordered by class, then rank:
   class 1 = tier 0 and common flag; class 2 = tier 1 and common flag; class 3 = tier 0 not common; class 4 = tier 1 not common.
   (`gakko`: 学校 is tier 1 common, がっこ is tier 0 not common, so 学校 is first.) KANA and KANJI queries keep tier 0 strictly before tier 1.
