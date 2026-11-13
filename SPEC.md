@@ -677,3 +677,16 @@ Replaces the single "Nearest: <key>" text and changes one ordering rule of secti
 - English corrections become chips only when the Japanese side has no good guess: no Japanese tier-0 hit and no
   Japanese suggestion with S <= 9. A correction that finds no entry is never offered. (`kaisa` no longer offers
   `laksa`; `dictonary` still offers `dictionary`.)
+
+### 20.1 Ruling 2026-11-13: the app-update button always ends in a final sentence
+Verified by the owner on the phone: the button downloaded a newer version. Added so that nobody waits on "Checking":
+1. The page first reads the website's `shell.json` (15 s limit). Failure -> `Could not reach the update server. Check
+   the internet connection and try again.`
+2. If the website's `built` is not newer than what the app has -> `The app is up to date.`, or, when a newer version
+   is downloaded but not yet in use, `The newest app version (<version>) is already downloaded. Close the app fully
+   and open it again to use it.`
+3. Otherwise the download starts and the line shows `Downloading app version <version> (<N> seconds).`, then either
+   `A newer app version was downloaded (<version>). Close the app fully and open it again to use it.` or, after 60
+   seconds, `The download did not finish within 60 seconds. The connection may be slow. It may still finish in the
+   background; press the button again in a minute.`
+A second press while a check runs is ignored.

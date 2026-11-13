@@ -463,30 +463,67 @@ async function newestDownloadedShell() {
 }
 if (IS_APP && 'caches' in window && 'serviceWorker' in navigator) {
   $('appcheckrow').hidden = false;
+  const shellInfo = () => new Promise((resolve) => {
+    const c = navigator.serviceWorker.controller;
+    if (!c) { resolve(null); return; }
+    const ch = new MessageChannel();
+    const t = setTimeout(() => resolve(null), 3000);
+    ch.port1.onmessage = (e) => { clearTimeout(t); resolve(e.data || null); };
+    c.postMessage({ type: 'shell-info' }, [ch.port2]);
+  });
+  let appCheckBusy = false;
   $('appchecknow').addEventListener('click', async () => {
+    // Every path ends in a final sentence within about 75 seconds; the line never stays on "Checking".
+    if (appCheckBusy) return;
+    appCheckBusy = true;
     const out = $('appcheckresult');
     out.hidden = false;
-    if (!navigator.serviceWorker.controller) { out.textContent = 'Offline cache is not available, so the app cannot update itself.'; return; }
-    out.textContent = 'Checking.';
+    const started = Date.now();
+    const secs = () => Math.round((Date.now() - started) / 1000);
     try {
+      if (!navigator.serviceWorker.controller) { out.textContent = 'Offline cache is not available, so the app cannot update itself.'; return; }
+      out.textContent = 'Checking for a newer app version.';
+      // 1. ask the website which version is current (fails fast when offline)
+      let remote = null;
+      try {
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 15000);
+        const r = await fetch('https://nostramadeus.github.io/nearest-jisho/shell.json', { cache: 'no-store', signal: ctl.signal });
+        clearTimeout(timer);
+        if (r.ok) remote = await r.json();
+      } catch { /* handled below */ }
+      if (!remote || !remote.built) { out.textContent = 'Could not reach the update server. Check the internet connection and try again.'; return; }
+      // 2. compare with what this app has
+      const info = await shellInfo();
       const before = await newestDownloadedShell();
+      const have = Math.max(info ? Number(info.bundledBuilt) || 0 : 0, before ? Number(before.built) || 0 : 0);
+      if (Number(remote.built) <= have) {
+        out.textContent = before && info && Number(before.built) > (Number(info.remoteBuilt) || 0) && Number(before.built) > (Number(info.bundledBuilt) || 0)
+          ? `The newest app version (${before.version}) is already downloaded. Close the app fully and open it again to use it.`
+          : 'The app is up to date.';
+        return;
+      }
+      // 3. let the service worker download it, and show the seconds while waiting
       await (await caches.open('nj-shell-meta')).delete(new URL('__last_check__', document.baseURI).href);
       const fr = document.createElement('iframe');
       fr.hidden = true;
       fr.src = './about.html?check=' + Date.now();
       document.body.appendChild(fr);
-      let after = before;
-      for (let i = 0; i < 20; i++) { // up to 40 seconds
+      let got = null;
+      while (secs() < 60) {
+        out.textContent = `Downloading app version ${remote.version} (${secs()} seconds).`;
         await new Promise((r) => setTimeout(r, 2000));
-        after = await newestDownloadedShell();
-        if (after && (!before || after.built > before.built)) break;
+        const now = await newestDownloadedShell();
+        if (now && Number(now.built) >= Number(remote.built)) { got = now; break; }
       }
       fr.remove();
-      out.textContent = after && (!before || after.built > before.built)
-        ? `A newer app version was downloaded (${after.version}). Close the app fully and open it again to use it.`
-        : 'No newer app version was found.';
+      out.textContent = got
+        ? `A newer app version was downloaded (${got.version}). Close the app fully and open it again to use it.`
+        : 'The download did not finish within 60 seconds. The connection may be slow. It may still finish in the background; press the button again in a minute.';
     } catch {
-      out.textContent = 'The check could not run.';
+      out.textContent = 'The check could not run. Nothing was changed.';
+    } finally {
+      appCheckBusy = false;
     }
   });
 }
