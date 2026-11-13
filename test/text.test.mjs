@@ -88,7 +88,7 @@ test('function-word rows and the rendered group', () => {
   assert.match(html, /<div class="titem" id="t-0"><article class="card"/);
   // the match highlight marks the segment in the headword
   assert.match(html, /<a class="hw" href="[^"]*"><mark>彼方<\/mark><\/a>/);
-  assert.match(html, /<p class="textnote">Split automatically; long kana runs can be wrong\.<\/p>/);
+  assert.match(html, /<p class="textnote">Split automatically by the most common words; it can be wrong\.<\/p>/);
 });
 
 test('limits: 500 characters and 60 segments', () => {

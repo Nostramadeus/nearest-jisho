@@ -156,9 +156,11 @@ function add(r, k) { if (!(r in R2K)) R2K[r] = k; }
     ca: 'か', cu: 'く', co: 'こ', ci: 'し', ce: 'せ',
     nn: 'ん', "n'": 'ん',
   });
-  // small kana: x / l prefix
+  // small kana: x prefix only; l + vowel is the r-row (SPEC 18 ruling 4, typo study 2.6); ltu / ltsu stay っ
   const small = { a: 'ぁ', i: 'ぃ', u: 'ぅ', e: 'ぇ', o: 'ぉ', ya: 'ゃ', yu: 'ゅ', yo: 'ょ', wa: 'ゎ', tu: 'っ', tsu: 'っ', ka: 'ゕ', ke: 'ゖ' };
-  for (const [r, k] of Object.entries(small)) { R2K['x' + r] = k; R2K['l' + r] = k; }
+  for (const [r, k] of Object.entries(small)) R2K['x' + r] = k;
+  R2K.ltu = 'っ'; R2K.ltsu = 'っ';
+  for (const r of Object.keys(R2K)) if (/^r(y?[aiueo])$/.test(r)) R2K['l' + r.slice(1)] = R2K[r];
 })();
 
 const MACRON = { 'ā': 'aa', 'ī': 'ii', 'ū': 'uu', 'ē': 'ee', 'ō': 'ou', 'â': 'aa', 'î': 'ii', 'û': 'uu', 'ê': 'ee', 'ô': 'ou' };
@@ -166,7 +168,17 @@ const MACRON = { 'ā': 'aa', 'ī': 'ii', 'ū': 'uu', 'ē': 'ee', 'ō': 'ou', 'â
 function prepLatin(text) {
   let t = text.toLowerCase();
   t = t.replace(/[āīūēōâîûêô]/g, (m) => MACRON[m]);
-  return t.normalize('NFKC');
+  return latinRewrite(t.normalize('NFKC'));
+}
+
+/**
+ * Old-style Hepburn spellings (typo study 2.5): m before b / p -> n (shimbun, sempai); with 4 or more letters,
+ * oh -> ou and uh -> uu when the next character is not a vowel or y (ohsaka, ohkii). Also used on the raw letters.
+ */
+export function latinRewrite(t) {
+  let out = t.replace(/m(?=[bp])/g, 'n');
+  if ((out.match(/[a-z]/g) || []).length >= 4) out = out.replace(/([ou])h(?![aiueoy])/g, (m, v) => (v === 'o' ? 'ou' : 'uu'));
+  return out;
 }
 
 /** Wapuro romaji -> hiragana. Returns { kana, clean }; clean=false when a Latin letter stays unconverted. */

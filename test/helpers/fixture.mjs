@@ -92,7 +92,7 @@ export const WORDS = [
   [{ k: ['学校教育'], r: ['がっこうきょういく'], s: [N(['n'], ['school education'])] }, 20000, 20000],
   [{ k: ['時刻'], r: ['じこく'], c: 1, s: [N(['n'], ['time', 'hour'])] }, 1000, 1000],
   [{ k: ['字書'], r: ['じしょ'], c: 1, s: [N(['n'], ['character dictionary'])] }, 20000, 999999],
-  [{ r: ['がっこ'], s: [N(['n'], ['tsukemono', 'Japanese pickled vegetables'], { d: ['thb'] })] }, 600, 999999],
+  [{ r: ['がっこ'], s: [N(['n'], ['tsukemono', 'Japanese pickled vegetables'], { d: ['thb'] })] }, 33360, 999999], // ff as in the real data (typo study 1.4: S 9)
   // SPEC 17 (words in a text): particles and a few nouns
   [{ r: ['の'], c: 1, s: [N(['prt'], ['indicates possessive'])] }, 5, 5],                 // 33
   [{ r: ['は'], c: 1, s: [N(['prt'], ['indicates sentence topic'])] }, 6, 6],             // 34

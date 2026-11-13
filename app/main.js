@@ -291,7 +291,7 @@ function renderFavorites() {
 favBtnEl.addEventListener('click', openFavorites);
 
 function onStar(btn) {
-  const item = { w: btn.dataset.w, r: btn.dataset.r, p: btn.dataset.p, g: btn.dataset.g };
+  const item = { w: btn.dataset.w, r: btn.dataset.r, p: btn.dataset.p, g: btn.dataset.g, h: btn.dataset.h };
   const key = favKey(item);
   if (S.view === 'fav') {
     const li = btn.closest('li');

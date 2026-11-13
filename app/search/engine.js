@@ -1,8 +1,9 @@
 // Search engine (SPEC 4). Pure module: no DOM, no fetch. Works on a PackStore (packs.js).
 
-import { canon, hasKana, romajiToKana, kanaToRomaji, toHiragana } from './romaji.js';
+import { canon, hasKana, romajiToKana, kanaToRomaji, toHiragana, latinRewrite } from './romaji.js';
 import { fold } from './fold.js';
-import { prepareQuery, distance, budget, reasonFor, letterMask, popcount, INF } from './cost.js';
+import { prepareQuery, distance, budget, reasonFor, letterMask, popcount, INF, P_LIMITS, pRank } from './cost.js';
+import { kanaVariants, latinVoicedVariants, KANA_LABEL } from './kanavariants.js';
 import { deinflect, posBits } from './deinflect.js';
 import { segmentText, isFunctionWord, TEXT_MAX_CHARS, TEXT_MIN_CHARS } from './segment.js';
 
@@ -34,6 +35,21 @@ export function tokenize(q) {
 }
 
 const CLS_A = 1, CLS_B = 2, CLS_C = 3;
+
+// ---------- SPEC 18 / design/typo-study.md section 1: one score S = cost + P(rank), in tenths ----------
+export { P_LIMITS, pRank }; // the P table lives in cost.js (also used by segment.js)
+/** Hit cost in tenths (study 1.1): tier 0 = 0, deinflected = 1, fold = 2, variants and near hits = their own cost. */
+export function hitCost10(h) {
+  if (h.c10 !== undefined) return h.c10;
+  if (h.tier === 0) return h.via ? 1 : 0;
+  return Math.round((h.cost || 0) * 10);
+}
+export const PROMOTE_MAX_COST = 5;
+export const PROMOTE_MAX_SCORE = 9;
+export const PROMOTE_COUNT = 3;
+export const LABELS = {
+  fold: 'long vowel / double letter', ei: 'ei / ee', wa: 'は typed as wa', l: 'l read as r', stem: 'plural / -ing / -ed',
+};
 const TIER2_MAX = 200;
 const CONTAINS_MAX = 100;
 
@@ -128,7 +144,7 @@ function readingT012(store, ctx, pack, c, kanaTyped, hits) {
     if (i === ex) continue;
     const key = ks.key(i);
     for (const id of ks.idsOf(i)) {
-      put(hits, { pack, id, tier: 1, cost: 0.2, space: 'r', key, keyLen: key.length, note: FOLD_NOTE });
+      put(hits, { pack, id, tier: 1, cost: 0.2, c10: 2, space: 'r', key, keyLen: key.length, label: LABELS.fold });
     }
   }
   t01 = hits.size;
@@ -208,12 +224,160 @@ function readingT3(store, ctx, pack, c, isKana, hits) {
     for (const id of ks.idsOf(i)) {
       const old = hits.get(id);
       if (old && old.tier < 3) continue;
-      put(hits, { pack, id, tier: 3, cost: d / 10, space: 'r', key, keyLen: key.length });
+      put(hits, { pack, id, tier: 3, cost: d / 10, c10: d, space: 'r', key, keyLen: key.length, lq: c, kbd: !isKana });
       added = true;
     }
     if (added) keys.push({ key, cost: d, pack, ids: ks.idsOf(i), q: c });
   }
   return keys;
+}
+
+// ---------- spelling variants (study 2.3, 2.4), phase "fast" ----------
+
+/** ei / ee / e variants of a canonical reading: one change each, left to right, at most 6. */
+export function eiVariants(c) {
+  const out = [];
+  const add = (v) => { if (out.length < 6 && v !== c && !out.includes(v)) out.push(v); };
+  for (let i = 0; i < c.length - 1 && out.length < 6; i++) {
+    if (c[i] === 'e' && c[i + 1] === 'e') add(c.slice(0, i) + 'ei' + c.slice(i + 2));
+    if (c[i] === 'e' && c[i + 1] === 'i') add(c.slice(0, i) + 'ee' + c.slice(i + 2));
+  }
+  for (let i = 0; i < c.length && out.length < 6; i++) {
+    if (c[i] !== 'e' || c[i - 1] === 'e' || c[i + 1] === 'e' || c[i + 1] === 'i') continue;
+    add(c.slice(0, i + 1) + 'i' + c.slice(i + 1));
+  }
+  return out;
+}
+/** Particle は typed as wa: each "wa" not after k or g, rightmost first, at most 3, -> "ha". */
+export function waVariants(c) {
+  const out = [];
+  for (let i = c.length - 2; i >= 0 && out.length < 3; i--) {
+    if (c[i] === 'w' && c[i + 1] === 'a' && c[i - 1] !== 'k' && c[i - 1] !== 'g') out.push(c.slice(0, i) + 'ha' + c.slice(i + 2));
+  }
+  return out;
+}
+const WA_POS = new Set(['exp', 'conj', 'adv', 'prt', 'int']);
+
+/** Look up variant readings (exact: cost, fold: cost + 2) and add new hits with the given tier and label. */
+function variantLookup(store, pack, variants, tier, cost10, label, hits, keep) {
+  const ks = store.keySpace(pack, 'r');
+  if (!ks) return;
+  for (const v of variants) {
+    const ex = ks.find(v);
+    const add = (i, c10) => {
+      const key = ks.key(i);
+      for (const id of ks.idsOf(i)) {
+        if (keep && !keep(id)) continue;
+        put(hits, { pack, id, tier, cost: c10 / 10, c10, space: 'r', key, keyLen: key.length, label, variant: v });
+      }
+    };
+    if (ex >= 0) add(ex, cost10);
+    for (const i of ks.foldLookup(fold(v))) if (i !== ex) add(i, cost10 + 2);
+  }
+}
+
+function spellingVariants(store, ctx, pack, c, hits) {
+  variantLookup(store, pack, eiVariants(c), 1, 3, LABELS.ei, hits);
+  if (pack === 'words') {
+    const keep = (id) => (store.getRecord('words', id).s || []).some((x) => (x.p || []).some((p) => WA_POS.has(p)));
+    variantLookup(store, pack, waVariants(c), 1, 2, LABELS.wa, hits, keep);
+  }
+}
+
+/** One-kana variants (study 2.9): tier 3 hits with their own cost and label. */
+function kanaVariantHits(store, pack, variants, hits) {
+  const ks = store.keySpace(pack, 'r');
+  if (!ks) return;
+  for (const v of variants) {
+    const rom = kanaToRomaji(v.kana);
+    if (!rom) continue;
+    const ex = ks.find(rom);
+    const add = (i, c10) => {
+      const key = ks.key(i);
+      for (const id of ks.idsOf(i)) {
+        const old = hits.get(id);
+        if (old && old.tier < 3) continue;
+        put(hits, { pack, id, tier: 3, cost: c10 / 10, c10, space: 'r', key, keyLen: key.length, label: KANA_LABEL[v.kind] });
+      }
+    };
+    if (ex >= 0) add(ex, v.cost);
+    for (const i of ks.foldLookup(fold(rom))) if (i !== ex) add(i, v.cost + 2);
+  }
+}
+
+/** Promotion (study 1.3): cost <= 5, cost + P(min(ff, fn)) <= 9, the 3 best by S, then cost, then rank. */
+function promote(store, ctx, hits) {
+  const cands = [];
+  for (const h of hits.values()) {
+    if (h.tier !== 3 || h.via === 'contains' || h.space !== 'r') continue;
+    const c10 = hitCost10(h);
+    if (c10 > PROMOTE_MAX_COST) continue;
+    const m = store.meta(h.pack, h.id);
+    if (c10 + pRank(Math.min(m.ff, m.fn)) > PROMOTE_MAX_SCORE) continue;
+    const rank = store.rank(h.pack, h.id, ctx.ranking);
+    cands.push({ h, S: c10 + pRank(rank), c10, rank });
+  }
+  cands.sort((a, b) => a.S - b.S || a.c10 - b.c10 || a.rank - b.rank || a.h.id - b.h.id);
+  for (const c of cands.slice(0, PROMOTE_COUNT)) c.h.promoted = true;
+}
+
+/**
+ * Order of a Japanese group for LATIN and KANA queries (study 1.4).
+ * LATIN: 1 tier-0 common by rank; 2 the rest of the top block (tier-0 not common, deinflected, tier 1, variants,
+ * promoted) by S; 3 tier 2 (common first, rank, shorter key); 4 the other tier-3 hits by S.
+ * KANA: 1 tier 0 as before (typed kana form, then romaji, then deinflected; by rank); 2 tier 1 + variants + promoted
+ * by S; 3 and 4 as for LATIN. English hits (wikt group) keep their own order after reading hits of the same block.
+ * Tie-break after S: cost, rank, shorter key, recent, pack, id.
+ */
+function makeReadingComparator(store, ctx) {
+  const ranking = ctx.ranking;
+  const rankOf = (h) => (h.rank !== undefined ? h.rank : (h.rank = store.rank(h.pack, h.id, ranking)));
+  const commonOf = (h) => (h.common !== undefined ? h.common : (h.common = store.isCommon(h.pack, h.id) ? 1 : 0));
+  const latin = ctx.kind === 'latin';
+  const blockOf = (h) => {
+    if (h.space === 'e') return h.tier === 0 ? 2 : h.tier === 2 ? 3 : 4;
+    if (h.tier === 0) return latin ? (!h.via && commonOf(h) ? 1 : 2) : 1;
+    if (h.tier === 1) return 2;
+    if (h.tier === 2) return 3;
+    return h.promoted ? 2 : 4;
+  };
+  const S = (h) => (h.S !== undefined ? h.S : (h.S = hitCost10(h) + pRank(rankOf(h))));
+  const tail = (a, b) => {
+    const ra = rankOf(a), rb = rankOf(b);
+    if (ra !== rb) return ra - rb;
+    if ((a.keyLen || 0) !== (b.keyLen || 0)) return (a.keyLen || 0) - (b.keyLen || 0);
+    if (ctx.recentAny) {
+      const xa = isRecent(store, ctx, a), xb = isRecent(store, ctx, b);
+      if (xa !== xb) return xb - xa;
+    }
+    if (a.pack !== b.pack) return a.pack < b.pack ? -1 : 1;
+    return a.id - b.id;
+  };
+  return (a, b) => {
+    const ba = blockOf(a), bb = blockOf(b);
+    if (ba !== bb) return ba - bb;
+    const ea = a.space === 'e', eb = b.space === 'e';
+    if (ea !== eb) return ea ? 1 : -1;
+    if (ea) { // English hits: (class, sense, rank) as in SPEC 4.9
+      if ((a.cls || 0) !== (b.cls || 0)) return (a.cls || 0) - (b.cls || 0);
+      if ((a.sense || 0) !== (b.sense || 0)) return (a.sense || 0) - (b.sense || 0);
+      return tail(a, b);
+    }
+    if (ba === 1) {
+      if (!latin && (a.sub || 0) !== (b.sub || 0)) return (a.sub || 0) - (b.sub || 0);
+      return tail(a, b);
+    }
+    if (ba === 3) {
+      const ca = commonOf(a), cb = commonOf(b);
+      if (ca !== cb) return cb - ca;
+      return tail(a, b);
+    }
+    const sa = S(a), sb = S(b);
+    if (sa !== sb) return sa - sb;
+    const ca = hitCost10(a), cb = hitCost10(b);
+    if (ca !== cb) return ca - cb;
+    return tail(a, b);
+  };
 }
 
 // ---------- written-form search (space k), SPEC 4.7 ----------
@@ -301,8 +465,20 @@ function glossClass(rec, sense, qn) {
   return best;
 }
 
+/** English stems (study 2.12): ies -> y; else es -> "" and s -> ""; ing -> "" / e; ed -> "" / e. */
+export function englishStems(t) {
+  if (t.length < 4 || /(ss|us|is)$/.test(t)) return [];
+  const out = [];
+  if (t.endsWith('ies')) out.push(t.slice(0, -3) + 'y');
+  else if (t.endsWith('es')) out.push(t.slice(0, -2), t.slice(0, -1));
+  else if (t.endsWith('s')) out.push(t.slice(0, -1));
+  if (t.endsWith('ing')) out.push(t.slice(0, -3), t.slice(0, -3) + 'e');
+  if (t.endsWith('ed')) out.push(t.slice(0, -2), t.slice(0, -2) + 'e');
+  return out.filter((x) => x.length >= 2);
+}
+
 /** English match for a token list. Returns Map id -> hit. tierOverride = 3 for fuzzy re-search. */
-function englishMatch(store, ctx, pack, tokens, qn, tierOverride) {
+function englishMatch(store, ctx, pack, tokens, qn, tierOverride, exactOnly = false) {
   const out = new Map();
   const es = store.keySpace(pack, 'e');
   if (!es || !tokens.length) return out;
@@ -332,6 +508,7 @@ function englishMatch(store, ctx, pack, tokens, qn, tierOverride) {
     }
   }
   for (const [packed, lastEx] of cand) {
+    if (exactOnly && !lastEx) continue;
     const id = Math.floor(packed / 16), sense = packed % 16;
     let tier, cls;
     if (lastEx) {
@@ -343,7 +520,7 @@ function englishMatch(store, ctx, pack, tokens, qn, tierOverride) {
     const old = out.get(id);
     if (!old || better(h, old)) out.set(id, h);
   }
-  if (prefixOnly) addPrefixOnly(store, ctx, pack, es, prefixOnly, tokens, tierOverride, out);
+  if (prefixOnly && !exactOnly) addPrefixOnly(store, ctx, pack, es, prefixOnly, tokens, tierOverride, out);
   return out;
 }
 
@@ -400,7 +577,7 @@ function englishFuzzy(store, ctx, tokens) {
   for (const t of tokens) {
     if (es.find(t) >= 0 || t.length < 4) { fixes.push(null); continue; }
     const B = budget(t.length);
-    const P = prepareQuery(t, { keyboard: true, soft: false, first: false });
+    const P = prepareQuery(t, { keyboard: true, soft: false, first: false, romaji: false });
     const qm = letterMask(t);
     const masks = es.masks();
     const found = [];
@@ -435,7 +612,7 @@ function englishFuzzy(store, ctx, tokens) {
     typed: ctx.typed,
     key: queries[0].join(' '),
     query: queries[0].join(' '),
-    reason: reasonFor(tokens[k0], fixes[k0][0].key, { keyboard: true, soft: false, first: false }),
+    reason: reasonFor(tokens[k0], fixes[k0][0].key, { keyboard: true, soft: false, first: false, romaji: false }),
   };
   return { queries, dym };
 }
@@ -445,6 +622,24 @@ function englishSide(store, ctx, query, packs) {
   const qn = normQuery(query);
   const res = {};
   for (const pack of packs) res[pack] = englishMatch(store, ctx, pack, tokens, qn);
+  // study 2.12: plural / -ing / -ed stems, class + 1, exact matches of the stem only
+  tokens.forEach((t, k) => {
+    for (const stem of englishStems(t)) {
+      const q = tokens.slice(); q[k] = stem;
+      const qn2 = normQuery(q.join(' '));
+      for (const pack of packs) {
+        const es = store.keySpace(pack, 'e');
+        if (!es || es.find(stem) < 0) continue;
+        for (const h of englishMatch(store, ctx, pack, q, qn2, undefined, true).values()) {
+          h.cls = Math.min(CLS_C, h.cls + 1);
+          h.tier = h.cls === CLS_C ? 2 : 0;
+          h.label = LABELS.stem;
+          const old = res[pack].get(h.id);
+          if (!old || better(h, old)) res[pack].set(h.id, h);
+        }
+      }
+    }
+  });
   let dym = null;
   if (ctx.phase === 'full' && tokens.length) {
     const fz = englishFuzzy(store, ctx, tokens);
@@ -454,6 +649,7 @@ function englishSide(store, ctx, query, packs) {
         const qn2 = normQuery(q.join(' '));
         for (const pack of packs) {
           for (const h of englishMatch(store, ctx, pack, q, qn2, 3).values()) {
+            h.label = fz.dym.reason;
             const old = res[pack].get(h.id);
             if (!old || better(h, old)) res[pack].set(h.id, h);
           }
@@ -538,6 +734,12 @@ export function search(store, query, opts = {}) {
       counts[p] = readingT012(store, ctx, p, c, kanaTyped, hits[p]);
       if (isKana) writtenT02(store, ctx, p, typed, hits[p], true);
     }
+    // study 2.3 / 2.4: spelling variants (ei / ee / e, particle は typed as wa), phase "fast"
+    for (const p of jaPacks) spellingVariants(store, ctx, p, c, hits[p]);
+    // study 2.6: l typed for r
+    if (kind === 'latin' && /l(?=y?[aiueo])/.test(typed.toLowerCase())) {
+      for (const p of jaPacks) for (const h of hits[p].values()) if (h.space === 'r' && h.tier <= 1 && !h.label) h.label = LABELS.l;
+    }
     // deinflection: kana queries, and Latin queries that convert cleanly to kana
     if (isKana) deinflectHits(store, ctx, toHiragana(typed), hits.words, typed);
     else {
@@ -553,31 +755,53 @@ export function search(store, query, opts = {}) {
         for (const p of packs) { t01 += countTier(hits[p], 1); t012 += countTier(hits[p], 2); }
         return t01 === 0 || (len >= 5 && t012 < 5);
       };
+      // study 1.2 gate: near matches unless a COMMON tier-0 word (not deinflected) was typed, or the old 2nd condition
+      const gateOpen = (packs) => {
+        let commonT0 = false, t012 = 0;
+        for (const p of packs) {
+          t012 += countTier(hits[p], 2);
+          for (const h of hits[p].values()) if (h.tier === 0 && !h.via && store.isCommon(h.pack, h.id)) { commonT0 = true; }
+        }
+        return !commonT0 || (len >= 5 && t012 < 5);
+      };
       // Ruling 2026-11-13 (tensia -> tensai): Latin queries are also compared as the raw typed letters, because
       // canon() turns "tensia" into "tenshia" and hides the swapped letters. The lower cost wins.
       const forms = [c];
       if (kind === 'latin') {
-        const raw = typed.normalize('NFKC').toLowerCase().replace(/[^a-z]/g, '');
+        const raw = latinRewrite(typed.normalize('NFKC').toLowerCase().replace(/[^a-z]/g, ''));
         if (raw && raw !== c) forms.push(raw);
       }
-      if (wantT3(jaPacks)) for (const p of jaPacks) for (const f of forms) t3keys.push(...readingT3(store, ctx, p, f, isKana, hits[p]));
+      const open = gateOpen(jaPacks);
+      if (open) for (const p of jaPacks) for (const f of forms) t3keys.push(...readingT3(store, ctx, p, f, isKana, hits[p]));
+      // study 2.9: one-kana variants (KANA queries of 2 to 12 kana; LATIN: voiced / unvoiced, canon length >= 5)
+      if (open) {
+        let variants = [];
+        if (isKana) variants = kanaVariants(toHiragana(typed));
+        else if (len >= 5) {
+          const rk = romajiToKana(typed.toLowerCase().replace(/\s+/g, ''));
+          if (rk.clean) variants = latinVoicedVariants(rk.kana);
+        }
+        if (variants.length) for (const p of jaPacks) kanaVariantHits(store, p, variants, hits[p]);
+      }
+      for (const p of jaPacks) promote(store, ctx, hits[p]);
       let namesKeys = [];
       if (has('names') && hits.words.size + hits.wikt.size < 5 && wantT3([...jaPacks, 'names'])) {
         for (const f of forms) namesKeys.push(...readingT3(store, ctx, 'names', f, isKana, hits.names));
       }
+      // did-you-mean (study 1.4): the tier-3 hit with the best S, when tiers 0 + 1 are empty
       const t01ja = countTier(hits.words, 1) + countTier(hits.wikt, 1);
-      const pool = t3keys.length ? t3keys : namesKeys;
-      if (t01ja === 0 && pool.length) {
-        let best = null, bestRank = 0;
-        for (const k of pool) {
-          let r = Infinity;
-          for (const id of k.ids) r = Math.min(r, store.rank(k.pack, id, ctx.ranking));
-          if (!best || k.cost < best.cost || (k.cost === best.cost && r < bestRank)) { best = k; bestRank = r; }
-        }
-        jaDym = {
-          side: 'ja', typed, key: best.key, query: best.key,
-          reason: reasonFor(best.q, best.key, { keyboard: !isKana, soft: true, first: true }),
+      if (t01ja === 0) {
+        let best = null;
+        const consider = (packs) => {
+          for (const p of packs) for (const h of hits[p].values()) {
+            if (h.tier !== 3 || h.space !== 'r') continue;
+            const c10 = hitCost10(h), rank = store.rank(h.pack, h.id, ctx.ranking), S = c10 + pRank(rank);
+            if (!best || S < best.S || (S === best.S && (c10 < best.c10 || (c10 === best.c10 && rank < best.rank)))) best = { h, S, c10, rank };
+          }
         };
+        consider(jaPacks);
+        if (!best) consider(['names']);
+        if (best) jaDym = { side: 'ja', typed, key: best.h.key, query: best.h.key, reason: labelOf(best.h, isKana) };
       }
     }
     if (kind === 'latin') en = englishSide(store, ctx, typed, jaPacks);
@@ -585,10 +809,11 @@ export function search(store, query, opts = {}) {
 
   // ---- groups ----
   const cmp = makeComparator(store, ctx);
+  const readingCmp = kind === 'kanji' ? cmp : makeReadingComparator(store, ctx);
   const mk = (id, map, extraMaps = []) => {
     const all = new Map(map);
     for (const m of extraMaps) for (const h of m.values()) put(all, h);
-    const list = Array.from(all.values()).sort(cmp);
+    const list = Array.from(all.values()).sort(id === 'en' ? cmp : readingCmp);
     const hidden = (map.hidden || 0) + extraMaps.reduce((a, m) => a + (m.hidden || 0), 0);
     const lim = ctx.groupLimits[id] || ctx.limit;
     const results = list.slice(0, lim);
@@ -599,8 +824,16 @@ export function search(store, query, opts = {}) {
         const head = (rec.k || []).includes(h.base) ? h.base : ((rec.k || [])[0] || h.base);
         h.note = `${h.typed} is the ${h.via} form of ${head}`;
       }
+      // SPEC 18: every non-exact row shows its reason label
+      if (!h.note && (h.tier === 1 || (h.tier === 3 && h.via !== 'contains') || h.label)) {
+        const l = labelOf(h, kind === 'kana');
+        if (l) h.note = l;
+      }
     }
-    return { id, title: TITLES[id], note: null, results: results.map(pub), total: list.length + hidden, dym: null, best: list[0] };
+    // exact: some tier-0 / tier-1 hit in the group (a promoted near hit can sort above them)
+    const exact = list.find((h) => h.tier <= 1);
+    const t0 = list.find((h) => h.tier === 0);
+    return { id, title: TITLES[id], note: null, results: results.map(pub), total: list.length + hidden, dym: null, best: list[0], exact, t0 };
   };
   const gWords = mk('words', hits.words);
   const gWikt = mk('wikt', hits.wikt, en && en.res.wikt ? [en.res.wikt] : []);
@@ -611,13 +844,13 @@ export function search(store, query, opts = {}) {
   if (en) {
     const gEn = mk('en', en.res.words || new Map());
     gEn.dym = en.dym;
-    const enT0 = gEn.best && gEn.best.tier === 0;
-    const jaT0 = gWords.best && gWords.best.tier === 0;
+    const enT0 = !!gEn.t0;
+    const jaT0 = !!gWords.t0;
     let enFirst = false;
     if (enT0 && !jaT0) enFirst = true;
     else if (enT0 && jaT0) {
-      const re = store.rank(gEn.best.pack, gEn.best.id, ctx.ranking);
-      const rj = store.rank(gWords.best.pack, gWords.best.id, ctx.ranking);
+      const re = store.rank(gEn.t0.pack, gEn.t0.id, ctx.ranking);
+      const rj = store.rank(gWords.t0.pack, gWords.t0.id, ctx.ranking);
       enFirst = re < rj;
     }
     // English and "Japanese words" swap per SPEC 4.3; wikt and names follow (open question Q2)
@@ -634,13 +867,21 @@ export function search(store, query, opts = {}) {
   }
   // "No exact match" line: only when no group has a tier-0 or tier-1 hit; then the first group (in display order)
   // that carries a did-you-mean (Japanese 4.4 or English 4.9). See PROGRESS-app.md open question Q3.
-  const anyExact = out.groups.some((g) => g.best && g.best.tier <= 1);
+  const anyExact = out.groups.some((g) => (g.exact !== undefined ? !!g.exact : g.best && g.best.tier <= 1));
   if (!anyExact) {
     for (const g of out.groups) if (g.dym && !out.didYouMean) out.didYouMean = g.dym;
     if (!out.didYouMean && jaDym) out.didYouMean = jaDym;
   }
-  for (const g of out.groups) delete g.best;
+  for (const g of out.groups) { delete g.best; delete g.exact; delete g.t0; }
   return out;
+}
+
+/** Reason label of a hit (SPEC 18: every non-exact row). */
+function labelOf(h, isKana) {
+  if (h.label) return h.label;
+  if (h.tier === 1) return LABELS.fold;
+  if (h.tier === 3 && h.lq && h.key) return reasonFor(h.lq, h.key, { keyboard: h.kbd !== undefined ? h.kbd : !isKana, soft: true, first: true });
+  return null;
 }
 
 function hasTier0(map) {
@@ -649,7 +890,7 @@ function hasTier0(map) {
 }
 
 export const TEXT_SEGMENTS_MAX = 60;
-export const TEXT_NOTE = 'Split automatically; long kana runs can be wrong.';
+export const TEXT_NOTE = 'Split automatically by the most common words; it can be wrong.';
 export const TEXT_CUT_NOTE = 'Only the first 500 characters are analysed.';
 export const TEXT_MORE_NOTE = 'Showing the first 60 words.';
 
@@ -705,6 +946,7 @@ function pub(h) {
   if (h.note) o.note = h.note;
   if (h.sense !== undefined) o.sense = h.sense;
   if (h.base) o.base = h.base;
+  if (h.promoted) o.promoted = true;
   return o;
 }
 

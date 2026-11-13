@@ -1,7 +1,8 @@
 // Words in a pasted text (SPEC 17.2 / 17.3). Pure module: runs in the worker and in node.
-// Greedy longest match, no look-ahead (a long run of hiragana can be split wrongly; stated in the group's note).
+// Lowest-total-weight split (SPEC 19.1): common words win over rare ones; it can still be wrong (stated in the note).
 import { toHiragana, isKana } from './romaji.js';
 import { deinflect, posBits } from './deinflect.js';
+import { pRank } from './cost.js';
 
 export const TEXT_MAX_CHARS = 500;
 export const TEXT_MIN_CHARS = 3;
@@ -72,10 +73,24 @@ function choose(store, cands, ranking) {
   });
 }
 
+export const UNKNOWN_WEIGHT = 40;
+const EXTRA = { 1: 0, 2: 4, 3: 6, 4: 8 }; // SPEC 19.1: + 4 deinflection only, + 6 wikt only, + 8 names only
+
+/** Candidate records of one edge: the first matching rule 1, 2, 3 (one-kana rule applied), else 4 (names, L >= 2). */
+function edgeCands(store, s, L) {
+  const c = oneKanaFilter(store, s, rulesOneToThree(store, s));
+  if (c.length) return c;
+  if (L >= 2 && store.has('names')) return exact(store, 'names', s).map((id) => ({ pack: 'names', id, rule: 4 }));
+  return [];
+}
+
 /**
- * Split a text into segments (SPEC 17.2). Returns { segments, truncated }; a segment is
- * { kind: 'word', text, start, end, pack, id, rule, via?, base?, others } | { kind: 'unknown' | 'sep', text }.
- * start/end are code-point positions in the (possibly truncated) text.
+ * Split a text into segments (SPEC 19.1, replacing the greedy rule of 17.2): every substring of up to 12 word
+ * characters that matches rule 1-4 is an edge of weight 10 + P(rank of the record 17.3 chooses) (+4 deinflection only,
+ * +6 wikt only, +8 names only; a one-kana function word weighs exactly 10); any character can be "unknown" at 40.
+ * Separators cost 0 and end a segment. The path with the lowest total weight wins; ties: fewer segments, then the
+ * longer first segment. Returns { segments, truncated }; a segment is
+ * { kind: 'word', text, start, end, pack, id, rule, via?, base?, others, weight } | { kind: 'unknown' | 'sep', text }.
  */
 export function segmentText(store, text, { ranking = 'fiction' } = {}) {
   let chars = Array.from(String(text));
@@ -89,35 +104,54 @@ export function segmentText(store, text, { ranking = 'fiction' } = {}) {
   let i = 0;
   while (i < chars.length) {
     if (!isWordChar(chars[i])) { push('sep', chars[i]); i++; continue; }
-    let runEnd = i;
-    while (runEnd < chars.length && isWordChar(chars[runEnd])) runEnd++;
-    const maxL = Math.min(SEGMENT_MAX_LEN, runEnd - i);
-    let win = null; // { L, cands }
-    let oneChar = null;
-    for (let L = maxL; L >= 1; L--) {
-      const s = chars.slice(i, i + L).join('');
-      const cands = oneKanaFilter(store, s, rulesOneToThree(store, s));
-      if (!cands.length) continue;
-      if (L >= 2) { win = { L, cands }; break; }
-      oneChar = { L, cands };
+    let end = i;
+    while (end < chars.length && isWordChar(chars[end])) end++;
+    for (const seg of splitRun(store, chars, i, end, ranking)) {
+      if (seg.kind === 'unknown') push('unknown', seg.text); else segments.push(seg);
     }
-    // 4. names, only when rules 1-3 found nothing of length >= 2 here
-    if (!win && store.has('names')) {
-      for (let L = maxL; L >= 2; L--) {
-        const ids = exact(store, 'names', chars.slice(i, i + L).join(''));
-        if (ids.length) { win = { L, cands: ids.map((id) => ({ pack: 'names', id, rule: 4 })) }; break; }
-      }
-    }
-    if (!win) win = oneChar;
-    if (!win) { push('unknown', chars[i]); i++; continue; }
-    const sorted = choose(store, win.cands, ranking);
-    const best = sorted[0];
-    const seg = { kind: 'word', text: chars.slice(i, i + win.L).join(''), start: i, end: i + win.L, pack: best.pack, id: best.id, rule: best.rule, others: sorted.length - 1 };
-    if (best.via) { seg.via = best.via; seg.base = best.base; }
-    segments.push(seg);
-    i += win.L;
+    i = end;
   }
   return { segments, truncated };
+}
+
+/** Lowest-weight split of chars[from..to) (no separators inside). */
+function splitRun(store, chars, from, to, ranking) {
+  const n = to - from;
+  // edges[k] = list of { L, w, seg } starting at from + k
+  const edges = Array.from({ length: n }, () => []);
+  for (let k = 0; k < n; k++) {
+    const maxL = Math.min(SEGMENT_MAX_LEN, n - k);
+    for (let L = 1; L <= maxL; L++) {
+      const s = chars.slice(from + k, from + k + L).join('');
+      const cands = edgeCands(store, s, L);
+      if (!cands.length) continue;
+      const sorted = choose(store, cands, ranking);
+      const best = sorted[0];
+      const oneKanaFn = L === 1 && allKana(s);
+      const w = oneKanaFn ? 10 : 10 + pRank(store.rank(best.pack, best.id, ranking)) + EXTRA[best.rule];
+      const seg = { kind: 'word', text: s, start: from + k, end: from + k + L, pack: best.pack, id: best.id, rule: best.rule, others: sorted.length - 1, weight: w };
+      if (best.via) { seg.via = best.via; seg.base = best.base; }
+      edges[k].push({ L, w, seg });
+    }
+    edges[k].push({ L: 1, w: UNKNOWN_WEIGHT, seg: { kind: 'unknown', text: chars[from + k] } });
+  }
+  // dynamic programming from the right: best[k] = best path from k to the end of the run
+  const best = new Array(n + 1);
+  best[n] = { w: 0, count: 0, edge: null };
+  for (let k = n - 1; k >= 0; k--) {
+    let pick = null;
+    for (const e of edges[k]) {
+      const rest = best[k + e.L];
+      const w = e.w + rest.w, count = 1 + rest.count;
+      if (!pick || w < pick.w || (w === pick.w && (count < pick.count || (count === pick.count && e.L > pick.edge.L)))) {
+        pick = { w, count, edge: e };
+      }
+    }
+    best[k] = pick;
+  }
+  const out = [];
+  for (let k = 0; k < n; k += best[k].edge.L) out.push(best[k].edge.seg);
+  return out;
 }
 
 /** Function word (17.4): first-sense part of speech prt / aux / aux-v / cop / conj and at most 2 characters. */

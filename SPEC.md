@@ -558,3 +558,59 @@ rank (`opts.ranking`), then record id. The segment keeps the count of the other 
   ordered by the usual rank, same row format. Same omission rules as the "start with" section (no names, no
   kana-only headwords, omitted when empty). Implementation: substring scan over the `k` keys string filtered to
   keys that end with the headword, capped at 2,000 scanned hits before ranking.
+
+## 18. Typo rules, second generation (added 2026-11-13)
+
+Source: `design/typo-study.md` (a study of mistake kinds, tested on the real data). Its sections 1 (score S, gate,
+promotion, group order) and 2.1 to 2.12 (one rule per mistake kind) are the plan of record for this section and
+REPLACE the parts of SPEC 4.4, 4.5 and 4.6 they name. Where the study and an older SPEC line disagree, the study
+wins; where the study is silent, the older SPEC line stays. Rulings on the study's open questions:
+
+| # | Question | Ruling |
+|---|---|---|
+| 1 | 内緒 first only by a small margin, and second under news ranking | accepted as designed |
+| 2 | Promotion limit | 9, as proposed |
+| 3 | A common correction above a rare exact word (`kaisa`: 会社 over 階差) | yes, for LATIN queries, exactly as study 1.4 orders it; KANA keeps tier 0 strictly first |
+| 4 | `la li lu le lo` | read as the r-row (study 2.6); small kana only through the `x` prefix |
+| 5 | Typos inside unfinished words | not forgiven in this round |
+| 6 | Kanji slips | not in this round |
+| 7 | Flick versus phone QWERTY | both rule sets are built as specified (study 2.8 and 2.9) |
+| 8 | Local list of missed searches | not in this round |
+| 9 | Other languages' romanisation habits | not in this round |
+| 10 | The "one key between" substitute cost 0.8 | REMOVED: such a substitute costs 1.0 like any other |
+
+- Every non-exact row shows its reason label (study, third principle). Labels are the ones the study names.
+- The study's section 3 table is the test list: every row whose "expected after" is stated becomes an acceptance
+  query in `tools/query.mjs --accept`, in addition to the existing 14, which must keep passing. A row that cannot
+  pass under the rules as written is NOT fixed by changing a rule: it is reported with the actual top 5.
+- English plural / -ing / -ed stems (study 2.12) are part of this section.
+- Known and accepted: rank and common flag are per record, not per reading (study 4.2); not changed here.
+
+## 19. Better text splitting and kana headwords (added 2026-11-13; revises 17.2 and the headword rule)
+
+### 19.1 Splitting by lowest total weight (replaces the greedy rule of 17.2)
+The greedy split failed on kana-only text (`きょうはいいてんきですね` became きょうはい / いてん / きで / すね).
+- Build every candidate edge: for each position i and each length L = 1..min(12, rest), `s` is an edge when it
+  matches by rule 1, 2, 3 or 4 of section 17.2 (the one-kana rule still applies; rule 4 is now allowed whenever it
+  matches with L >= 2, without the "only if nothing else matched" condition).
+- Edge weight = `10 + P(rank)` where `rank` is the rank (per `opts.ranking`) of the record section 17.3 would choose
+  for that edge and `P` is the table of `design/typo-study.md` section 1.1 (0 to 18); plus 4 when the edge matched
+  only by deinflection (rule 2); plus 6 when only by the wikt pack (rule 3); plus 8 when only by the names pack
+  (rule 4). A one-kana function-word edge weighs exactly 10.
+- A character with no edge starting at it (or any character, as a fallback edge) can be consumed as "unknown" at
+  weight 40. Separators cost 0 and always end a segment.
+- Choose the path with the lowest total weight (dynamic programming, left to right). Ties: fewer segments, then
+  the longer first segment.
+- Acceptance (real packs): `きょうはいいてんきですね` -> きょう / は / いい / てんき / です / ね;
+  `彼方の空まで` -> 彼方 / の / 空 / まで; `食べさせられた子供たち` -> 食べさせられた / 子供たち;
+  `国際宇宙ステーション計画` -> 国際宇宙ステーション / 計画. `今日は学校に行きたくない` may keep 今日は as one segment
+  (both readings are real); report what it gives.
+- The note line becomes: `Split automatically by the most common words; it can be wrong.`
+
+### 19.2 Kana headwords for words usually written in kana
+- Everywhere a record is shown (result cards, text-group rows, entry page, Favorites rows, starts-with and
+  ends-with rows): when the record's FIRST sense has misc `uk` (usually written in kana), the headword shown is its
+  first kana form, and its kanji forms move to "Other forms". (`まで` shows まで, not 迄; `の` shows の, not 乃.)
+- When the user's query or text segment exactly equals one of the record's forms, that form is the headword shown,
+  whatever the `uk` flag says (typing 迄 still shows 迄).
+- The entry address (section 10.2) keeps using the first written form, so existing favorites and links stay valid.

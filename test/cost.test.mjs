@@ -22,19 +22,19 @@ test('cost table row: swap two adjacent letters = 0.5', () => {
   assert.equal(d('jihso', 'jisho'), 5);
 });
 
-test('cost table rows: substitute touch 0.5, one between 0.8, other 1.0', () => {
+test('cost table rows: substitute touch 0.5, any other 1.0 (SPEC 18 ruling 10: no 0.8)', () => {
   assert.equal(keyRelation('k', 'j'), 'touch');
   assert.equal(keyRelation('k', 'm'), 'touch');
-  assert.equal(keyRelation('k', 'n'), 'one-between');
+  assert.equal(keyRelation('k', 'n'), 'far');
   assert.equal(keyRelation('k', 'a'), 'far');
   assert.equal(d('pkq', 'pjq'), 5);   // k -> j touch (not position 0)
-  assert.equal(d('pkq', 'pnq'), 8);   // k -> n one between
+  assert.equal(d('pkq', 'pnq'), 10);  // k -> n: one key between now costs 1.0
   assert.equal(d('pkq', 'paq'), 10);  // k -> a far
 });
 
 test('cost table row: other insert/delete = 1.0', () => {
   assert.equal(d('dictonary', 'dictionary', { soft: false, first: false }), 10);
-  assert.equal(d('abcd', 'abd'), 10);
+  assert.equal(d('abpd', 'abd'), 10); // p touches neither b nor d (no fat-finger discount)
 });
 
 test('kana queries: keyboard table off, every substitute 1.0', () => {

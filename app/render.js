@@ -1,6 +1,6 @@
 // Pure HTML rendering for result cards (no DOM access), shared by main.js and the tests.
 import { POS, MISC, FIELD, DIALECT, NAME_TYPE, SLANG_CODES, label } from './labels.js';
-import { entryAddress, entryHash } from './search/entry.js';
+import { entryAddress, entryHash, usuallyKana } from './search/entry.js';
 import { firstGloss } from './favorites.js';
 
 const STAR_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>';
@@ -9,9 +9,10 @@ const STAR_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="t
  * Favorite star (SPEC 11): aria-pressed true = filled star. data-* carry the entry address and the first gloss.
  * opts.fav(w, r, p) -> bool tells the current state.
  */
-export function starHtml(addr, gloss, on, extraClass = '') {
+export function starHtml(addr, gloss, on, extraClass = '', shown = '') {
   return `<button type="button" class="star${extraClass ? ' ' + extraClass : ''}" aria-pressed="${on ? 'true' : 'false'}" aria-label="Favorite"` +
-    ` data-w="${esc(addr.w)}" data-r="${esc(addr.r)}" data-p="${esc(addr.p)}" data-g="${esc(gloss || '')}">${STAR_SVG}</button>`;
+    ` data-w="${esc(addr.w)}" data-r="${esc(addr.r)}" data-p="${esc(addr.p)}" data-g="${esc(gloss || '')}"` +
+    `${shown && shown !== addr.w ? ` data-h="${esc(shown)}"` : ''}>${STAR_SVG}</button>`;
 }
 const isFav = (opts, a) => !!(opts && opts.fav && opts.fav(a.w, a.r, a.p));
 
@@ -49,14 +50,22 @@ export function markTokens(text, tokens) {
   return out + esc(text.slice(pos));
 }
 
+/**
+ * Headword, reading line and marks of a card. SPEC 19.2: a record whose first sense is uk shows its kana form as the
+ * headword (kanji forms go to "Other forms"), except when the typed query / segment equals one of its forms (hl k).
+ */
 export function headParts(rec, hl) {
   const kf = rec.k || [], rf = rec.r || [];
-  let head = kf[0] || rf[0] || '', reading = kf.length ? (rf[0] || '') : '', headMark = null, readMark = null;
+  const uk = usuallyKana(rec);
+  const kanaHead = !kf.length || uk;
+  let head = kanaHead ? (rf[0] || kf[0] || '') : kf[0], reading = kanaHead ? '' : (rf[0] || ''), headMark = null, readMark = null;
   if (hl && hl.space === 'k') {
-    if (kf.includes(hl.form)) { head = hl.form; headMark = -1; }
-    else if (rf.includes(hl.form)) { if (kf.length) { reading = hl.form; readMark = -1; } else { head = hl.form; headMark = -1; } }
+    if (kf.includes(hl.form)) { head = hl.form; headMark = -1; reading = rf[0] || ''; }
+    else if (rf.includes(hl.form)) {
+      if (kanaHead) { head = hl.form; headMark = -1; } else { reading = hl.form; readMark = -1; }
+    }
   } else if (hl && hl.space === 'r' && hl.form) {
-    if (kf.length) { reading = hl.form; readMark = hl.len; } else { head = hl.form; headMark = hl.len; }
+    if (kanaHead) { head = hl.form; headMark = hl.len; } else { reading = hl.form; readMark = hl.len; }
   }
   if (reading === head) reading = '';
   return { head, reading, headMark, readMark };
@@ -126,7 +135,7 @@ export function cardHtml(hit, gi, ri, opts = {}) {
   const addr = entryAddress(hit.pack, rec);
   const href = entryHash(addr);
   return `<article class="card" data-g="${gi}" data-r="${ri}" data-entry="${esc(href)}">` +
-    starHtml(addr, firstGloss(rec), isFav(opts, addr)) +
+    starHtml(addr, firstGloss(rec), isFav(opts, addr), '', head) +
     `<div class="word">${reading ? `<div class="kana" lang="ja">${markText(reading, readMark)}</div>` : ''}` +
     `<div class="kanji" lang="ja"><a class="hw" href="${esc(href)}">${markText(head, headMark)}</a></div>` +
     `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</div>` +
@@ -187,7 +196,7 @@ export function entryHtml(d, opts = {}) {
     `<header class="entry-head">${reading ? `<div class="kana" lang="ja">${esc(reading)}</div>` : ''}` +
     `${d.romaji ? `<div class="romaji">${esc(d.romaji)}</div>` : ''}` +
     `<div class="entry-title"><h2 class="entry-word" lang="ja">${esc(head)}</h2>` +
-    `${starHtml(entryAddress(pack, rec), firstGloss(rec), isFav(opts, entryAddress(pack, rec)), 'entry-star')}</div>` +
+    `${starHtml(entryAddress(pack, rec), firstGloss(rec), isFav(opts, entryAddress(pack, rec)), 'entry-star', head)}</div>` +
     `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</header>`;
   const sec = (title, body) => `<section class="entry-sec"><h3>${title}</h3>${body}</section>`;
   if (!isWikt) {
@@ -208,8 +217,9 @@ export function entryHtml(d, opts = {}) {
   const wordRows = (list) => `<ul class="starts">${list.map((x) =>
     `<li><a href="${esc(entryHash(x))}"><span lang="ja">${esc(x.head)}</span>${x.reading ? ` <span class="kana" lang="ja">${esc(x.reading)}</span>` : ''}</a>` +
     `${x.gloss ? ` <span class="info">${esc(x.gloss)}</span>` : ''}</li>`).join('')}</ul>`;
-  if (d.startsWith.length) html += sec(`Words that start with <span lang="ja">${esc(head)}</span>`, wordRows(d.startsWith));
-  if (d.endsWith && d.endsWith.length) html += sec(`Words that end with <span lang="ja">${esc(head)}</span>`, wordRows(d.endsWith));
+  const base = d.written || head;
+  if (d.startsWith.length) html += sec(`Words that start with <span lang="ja">${esc(base)}</span>`, wordRows(d.startsWith));
+  if (d.endsWith && d.endsWith.length) html += sec(`Words that end with <span lang="ja">${esc(base)}</span>`, wordRows(d.endsWith));
   const links = [ext(`https://ja.wikipedia.org/w/index.php?search=${encodeURIComponent(head)}`, `Search Wikipedia for "${esc(head)}"`)];
   if (isWikt && rec.u) links.push(ext(rec.u, rec.src === 'wj' ? 'Open in Japanese Wiktionary' : 'Open in Wiktionary'));
   if (pack === 'words') links.push(ext(`https://jisho.org/search/${encodeURIComponent(head)}`, 'Look up on Jisho.org'));
@@ -252,10 +262,10 @@ export function favoritesHtml(list, removed = new Set()) {
   for (const f of list) {
     const off = removed.has(key(f));
     html += `<li class="fav${off ? ' removed' : ''}" data-t="${esc(f.t || 0)}">` +
-      `<a href="${esc(entryHash(f))}" lang="ja" class="fav-word">${esc(f.w)}</a>` +
-      `${f.r && f.r !== f.w ? ` <span class="kana" lang="ja">${esc(f.r)}</span>` : ''}` +
+      `<a href="${esc(entryHash(f))}" lang="ja" class="fav-word">${esc(f.h || f.w)}</a>` +
+      `${f.r && f.r !== (f.h || f.w) ? ` <span class="kana" lang="ja">${esc(f.r)}</span>` : ''}` +
       `${f.g ? ` <span class="info">${esc(f.g)}</span>` : ''}` +
-      starHtml(f, f.g, !off, 'fav-star') + '</li>';
+      starHtml(f, f.g, !off, 'fav-star', f.h) + '</li>';
   }
   return html + '</ul>';
 }

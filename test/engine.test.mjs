@@ -37,10 +37,10 @@ test('phase fast has no tier 3 and no did-you-mean', () => {
 test('tiers 0, 1, 2 and ordering for jisho', () => {
   const r = run('jisho');
   const g = group(r, 'words').results;
-  assert.deepEqual(g.map((h) => h.tier), [0, 0, 0, 0, 1, 2]);
+  assert.deepEqual(g.map((h) => h.tier), [0, 0, 0, 1, 0, 2]); // study 1.4: 事象 (tier 1, S 7) before 自署 (tier 0 not common, S 18)
   assert.equal(head(g[0]), '辞書'); // best rank among tier 0
-  assert.equal(head(g[4]), '事象'); // jishou folds to jisho
-  assert.equal(g[4].note, 'long vowel / double letter');
+  assert.equal(head(g[3]), '事象'); // jishou folds to jisho
+  assert.equal(g[3].note, 'long vowel / double letter');
   assert.equal(head(g[5]), '辞書形');
   assert.deepEqual(g[5].hl, { space: 'r', form: 'じしょけい', len: 3 });
   assert.equal(r.didYouMean, null);
@@ -71,8 +71,8 @@ test('shojo: 処女 tier 0, 少女 tier 1 in top 3', () => {
 
 test('ruling: tier 3 sorts by exact cost, then rank (jihso -> 辞書 first)', () => {
   const g = group(run('jihso'), 'words').results;
-  assert.deepEqual(g.map(head), ['辞書', '地所', '字書', '自署', '事象']); // cost 0.5 x4 by rank, then 0.7
-  assert.deepEqual(g.map((h) => h.cost), [0.5, 0.5, 0.5, 0.5, 0.7]);
+  assert.deepEqual(g.map(head), ['辞書', '事象', '地所', '字書', '自署']); // by S = cost + P(rank): 5, 12, 13, 13, 23
+  assert.deepEqual(g.map((h) => h.cost), [0.5, 0.7, 0.5, 0.5, 0.5]);
 });
 
 test('ruling: LATIN merges tiers 0 and 1 by common class (gakko -> 学校 first)', () => {
@@ -86,11 +86,12 @@ test('ruling: LATIN merges tiers 0 and 1 by common class (gakko -> 学校 first)
   assert.equal(head(k[1]), '学校');
 });
 
-test('gakko -> 学校 first (fold), konichiwa -> 今日は first (near)', () => {
+test('gakko -> 学校 first (fold), konichiwa -> 今日は first (particle は typed as wa, then fold)', () => {
   assert.equal(heads(run('gakko'), 'words')[0], '学校');
   const k = run('konichiwa');
   assert.equal(heads(k, 'words')[0], '今日は');
-  assert.ok(k.didYouMean);
+  assert.equal(group(k, 'words').results[0].note, 'は typed as wa');
+  assert.equal(k.didYouMean, null); // a tier-1 variant hit: no "No exact match" line
 });
 
 test('kaki: only exact/prefix, no did-you-mean', () => {

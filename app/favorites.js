@@ -47,10 +47,12 @@ export function createFavorites(storage, now = () => Date.now()) {
     list() { return read().sort((a, b) => (b.t || 0) - (a.t || 0)); },
     has(w, r, p) { return read().some((x) => same(x, { w, r, p })); },
     /** Adds (or keeps) a favorite. `t` may be given to restore a removed row at its old place. */
-    add({ w, r, p, g = '', t }) {
+    add({ w, r, p, g = '', t, h }) {
       const list = read();
       if (list.some((x) => same(x, { w, r, p }))) return true;
-      list.push({ w, r, p, g, t: typeof t === 'number' ? t : now() });
+      const item = { w, r, p, g, t: typeof t === 'number' ? t : now() };
+      if (h && h !== w) item.h = h; // shown headword (SPEC 19.2: kana for uk words); identity stays (w, r, p)
+      list.push(item);
       return write(list);
     },
     remove(w, r, p) {
@@ -70,5 +72,5 @@ export function createFavorites(storage, now = () => Date.now()) {
 /** "Copy list" text: one line per favorite, word<TAB>reading<TAB>gloss. */
 export function favoritesText(list) {
   const clean = (s) => String(s || '').replace(/[\t\r\n]+/g, ' ');
-  return list.map((f) => `${clean(f.w)}\t${clean(f.r)}\t${clean(f.g)}`).join('\n');
+  return list.map((f) => `${clean(f.h || f.w)}\t${clean(f.r)}\t${clean(f.g)}`).join('\n');
 }

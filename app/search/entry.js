@@ -5,6 +5,20 @@ import { prefixRecords } from './engine.js';
 const KANJI_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3005\u{20000}-\u{3134f}]/u;
 export const hasKanji = (s) => KANJI_RE.test(s || '');
 
+/** The record's first sense is marked "usually written in kana" (misc uk). */
+export const usuallyKana = (rec) => !!(rec && rec.s && rec.s[0] && (rec.s[0].m || []).includes('uk') && rec.r && rec.r.length);
+
+/**
+ * Headword shown for a record (SPEC 19.2): its first kana form when the first sense is marked uk, else the first
+ * written form. `typed`: a query or text segment that equals one of the record's forms wins whatever uk says.
+ */
+export function shownHead(rec, typed) {
+  const kf = rec.k || [], rf = rec.r || [];
+  if (typed && (kf.includes(typed) || rf.includes(typed))) return typed;
+  if (usuallyKana(rec)) return rf[0];
+  return kf[0] || rf[0] || '';
+}
+
 /** Address parts of a record: w = first written form or first kana form, r = first kana form. */
 export function entryAddress(pack, rec) {
   const w = (rec.k && rec.k[0]) || (rec.r && rec.r[0]) || '';
@@ -150,12 +164,15 @@ export function suffixRecords(store, pack, suffix, { ranking = 'fiction', max = 
  */
 export function entryData(store, pack, id, { ranking = 'fiction', sentLoading = false } = {}) {
   const rec = store.getRecord(pack, id);
-  const head = (rec.k && rec.k[0]) || (rec.r && rec.r[0]) || '';
+  // SPEC 19.2: uk words show their kana form; the written form still names the kanji blocks and the start / end lists
+  const written = (rec.k && rec.k[0]) || (rec.r && rec.r[0]) || '';
+  const head = shownHead(rec);
   const reading = (rec.r && rec.r[0]) || '';
   const data = {
     pack, rec, head, reading,
     romaji: reading ? kanaToRomaji(reading) : '',
-    kanji: kanjiBlocks(store, head),
+    kanji: kanjiBlocks(store, written),
+    written,
     startsWith: [],
     endsWith: [],
     sentences: pack === 'names' ? [] : store.has('sent') ? sentencesFor(store, pack, rec) : sentLoading ? null : [],
@@ -167,14 +184,15 @@ export function entryData(store, pack, id, { ranking = 'fiction', sentLoading = 
       const wr = store.getRecord('words', wid);
       const a = entryAddress('words', wr);
       const first = wr.s && wr.s[0] && wr.s[0].g ? wr.s[0].g[0] : '';
-      return { ...a, head: a.w, reading: (wr.k && wr.k.length) ? a.r : '', gloss: first };
+      const shown = shownHead(wr);
+      return { ...a, head: shown, reading: shown !== a.r ? a.r : '', gloss: first };
     };
-    const starts = prefixRecords(store, 'words', head, { ranking, max: 20, exclude });
+    const starts = prefixRecords(store, 'words', written, { ranking, max: 20, exclude });
     data.startsWith = starts.map(({ id: wid }) => row(wid));
     // section 17.5: words that END with the headword (the record itself and the start-with rows excluded)
     const skip = new Set(starts.map((x) => x.id));
     if (exclude >= 0) skip.add(exclude);
-    data.endsWith = suffixRecords(store, 'words', head, { ranking, max: 20, skip }).map(row);
+    data.endsWith = suffixRecords(store, 'words', written, { ranking, max: 20, skip }).map(row);
   }
   return data;
 }
