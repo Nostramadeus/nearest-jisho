@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Data build entry (SPEC sections 2 and 3).
-//   node build/build-data.mjs [--only words,names,kanji,wikt]
+//   node build/build-data.mjs [--only words,names,kanji,wikt,sent]
 // Downloads the sources, writes the packs into app/data/, writes app/data/version.json.
 // Node stdlib only. Temporary files live in build/.cache/ and are deleted when their pack is written.
 import fs from 'node:fs';
@@ -9,8 +9,9 @@ import { pathToFileURL } from 'node:url';
 import { ROOT, OUT, log, mb } from './lib/util.mjs';
 import { latestRelease, loadPriority, loadJiten, loadJlpt } from './lib/sources.mjs';
 import { buildWords, buildNames, buildKanji, buildWikt } from './lib/packs.mjs';
+import { buildSent } from './lib/sent.mjs';
 
-const ALL = ['words', 'names', 'kanji', 'wikt'];
+const ALL = ['words', 'names', 'kanji', 'wikt', 'sent'];
 
 function parseArgs(argv) {
   let only = ALL;
@@ -49,7 +50,7 @@ async function main() {
   log(`jmdict-simplified release ${release.tag}`);
   const report = { release: release.tag, packs: {} };
 
-  const jiten = only.some((p) => p !== 'kanji') ? await loadJiten(romaji.toHiragana) : null;
+  const jiten = only.some((p) => ['words', 'names', 'wikt'].includes(p)) ? await loadJiten(romaji.toHiragana) : null;
   report.jiten = jiten ? { rows: jiten.rows } : 'not available: ff = fn';
 
   if (only.includes('words')) {
@@ -74,6 +75,18 @@ async function main() {
     const r = await buildWikt({ romaji, jiten });
     writeVersion(release, { wikt: { n: r.n, bytes: r.bytes } });
     report.packs.wikt = r;
+  }
+  if (only.includes('sent')) {
+    // SPEC 13.1: missing tools or a failed URL skip this pack locally, and fail the build on CI.
+    try {
+      const r = await buildSent({ toHiragana: romaji.toHiragana });
+      writeVersion(release, { sent: { n: r.n, bytes: r.bytes } });
+      report.packs.sent = r;
+    } catch (e) {
+      if (process.env.CI) throw new Error(`sent pack failed on CI: ${e.message}`);
+      log(`WARNING: sent pack SKIPPED (${e.message}). The other packs are unaffected.`);
+      report.packs.sent = { skipped: e.message };
+    }
   }
   fs.mkdirSync(path.join(ROOT, 'build', '.cache'), { recursive: true });
   fs.writeFileSync(path.join(ROOT, 'build', '.cache', 'last-build-report.json'), JSON.stringify(report, null, 1));

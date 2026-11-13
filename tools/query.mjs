@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PackStore, PACKS } from '../app/search/packs.js';
+import { PackStore, PACKS, LOAD_ORDER, SENT } from '../app/search/packs.js';
 import { search, didYouMeanText } from '../app/search/engine.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -42,8 +42,15 @@ try {
   process.exit(2);
 }
 const loadTimes = {};
-for (const p of PACKS) {
+for (const p of LOAD_ORDER) { // same order as the worker (SPEC 13.4)
   const t = performance.now();
+  if (p === 'kanji') { try { await store.loadKanji(); } catch { /* optional */ } loadTimes.kanji = Math.round(performance.now() - t); continue; }
+  if (p === SENT) {
+    if (store.version.packs && store.version.packs[SENT]) { try { await store.loadSent(); } catch (e) { console.error(`pack sent not loaded: ${e.message}`); } }
+    loadTimes[p] = Math.round(performance.now() - t);
+    sampleMem();
+    continue;
+  }
   try { await store.loadPack(p); } catch (e) { console.error(`pack ${p} not loaded: ${e.message}`); }
   loadTimes[p] = Math.round(performance.now() - t);
   const tw = performance.now();
@@ -51,7 +58,6 @@ for (const p of PACKS) {
   loadTimes[p + ' indexes'] = Math.round(performance.now() - tw);
   sampleMem();
 }
-try { await store.loadKanji(); } catch { /* optional */ }
 const loadMs = Math.round(performance.now() - t0);
 
 const head = (h) => { const r = store.getRecord(h.pack, h.id); return (r.k && r.k[0]) || (r.r && r.r[0]) || '?'; };
@@ -156,7 +162,7 @@ sampleMem();
 clearInterval(memTimer);
 if (flag('--accept') || flag('--bench') || flag('--mem')) {
   const v = store.version || {};
-  console.log(`\ndata built ${v.built} (${v.jmdict}); load ${loadMs} ms ${JSON.stringify(loadTimes)}; records ${PACKS.map((p) => `${p} ${store.size(p)}`).join(', ')}`);
+  console.log(`\ndata built ${v.built} (${v.jmdict}); load ${loadMs} ms ${JSON.stringify(loadTimes)}; records ${[...PACKS, SENT].map((p) => `${p} ${store.size(p)}`).join(', ')}`);
   console.log(`peak memory: rss ${(peakRss / 1048576).toFixed(0)} MB, heap+arrayBuffers ${(peakHeap / 1048576).toFixed(0)} MB; ` +
     `now heap ${(process.memoryUsage().heapUsed / 1048576).toFixed(0)} MB, arrayBuffers ${(process.memoryUsage().arrayBuffers / 1048576).toFixed(0)} MB`);
 }

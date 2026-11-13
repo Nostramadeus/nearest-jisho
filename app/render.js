@@ -152,6 +152,22 @@ export function kanjiBlockHtml(literal, k) {
 
 const ext = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener">${text}</a>`;
 
+export const SENT_LOADING = 'Loading sentences…';
+
+/** Japanese text with the first occurrence of form wrapped in <mark> (no mark when absent). */
+export function markForm(text, form) {
+  const i = form ? text.indexOf(form) : -1;
+  if (i < 0) return esc(text);
+  return esc(text.slice(0, i)) + `<mark>${esc(form)}</mark>` + esc(text.slice(i + form.length));
+}
+
+/** One Tatoeba sentence (SPEC 13.4). */
+export function sentenceHtml(s) {
+  return `<li class="sent"><span class="ja" lang="ja">${markForm(s.ja, s.form)}</span>` +
+    `<span class="en">${esc(s.en)}</span>` +
+    `<a class="tatoeba" href="https://tatoeba.org/sentences/show/${encodeURIComponent(s.id)}" target="_blank" rel="noopener">Tatoeba #${esc(s.id)}</a></li>`;
+}
+
 /** The entry page (SPEC 10.2). d = entryData() from search/entry.js. */
 export function entryHtml(d, opts = {}) {
   const { rec, pack, head } = d;
@@ -183,6 +199,10 @@ export function entryHtml(d, opts = {}) {
     html += sec('Translations', `<ol>${(rec.g || []).map((g) => `<li>${esc(g)}</li>`).join('')}</ol>`);
   } else {
     html += sec('Meanings', sensesHtml(rec, {}, isWikt, { allExamples: true }));
+  }
+  if (d.sentences === null) html += sec('Sentences with this word', `<p class="dim">${SENT_LOADING}</p>`);
+  else if (d.sentences && d.sentences.length) {
+    html += sec(`Sentences with this word (${d.sentences.length})`, `<ol class="sents">${d.sentences.map(sentenceHtml).join('')}</ol>`);
   }
   if (d.kanji.length) html += sec('Kanji in this word', d.kanji.map((b) => kanjiBlockHtml(b.literal, b.data)).join(''));
   if (d.startsWith.length) {

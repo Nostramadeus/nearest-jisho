@@ -1,5 +1,5 @@
 // Entry page data (SPEC 10.2). Pure: no DOM, no fetch. Works on a PackStore.
-import { kanaToRomaji } from './romaji.js';
+import { kanaToRomaji, toHiragana } from './romaji.js';
 import { prefixRecords } from './engine.js';
 
 const KANJI_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3005\u{20000}-\u{3134f}]/u;
@@ -71,8 +71,54 @@ export function kanjiBlocks(store, headword) {
   return out;
 }
 
-/** Everything the entry page shows for one record. */
-export function entryData(store, pack, id, { ranking = 'fiction' } = {}) {
+export const SENTENCE_MAX = 25;
+
+/**
+ * Sentence-pack keys for a words or wikt record (SPEC 13.4), in lookup order: for every kanji form k, the keys
+ * k<TAB>r for every kana form r (reading in hiragana, as in the index), then k; then, when the record has no kanji
+ * form or a sense marked "uk", the keys r for every kana form. Duplicates removed.
+ */
+export function sentenceKeys(pack, rec) {
+  if (pack === 'names') return [];
+  const kf = (rec.k || []), rf = (rec.r || []);
+  const keys = [];
+  for (const k of kf) {
+    for (const r of rf) keys.push(`${k}\t${toHiragana(r)}`);
+    keys.push(k);
+  }
+  const uk = (rec.s || []).some((s) => (s.m || []).includes('uk'));
+  if (!kf.some(hasKanji) || uk) for (const r of rf) keys.push(r);
+  return Array.from(new Set(keys));
+}
+
+/**
+ * Up to 25 sentences for a record: union over sentenceKeys() in order, one entry per sentence, minus sentences
+ * whose Japanese text equals an example already shown under a meaning. Returns [{ ja, en, id (Tatoeba), form }].
+ */
+export function sentencesFor(store, pack, rec, max = SENTENCE_MAX) {
+  if (pack === 'names' || !store.has('sent')) return [];
+  const shown = new Set();
+  for (const s of rec.s || []) for (const x of s.x || []) shown.add(x[0]);
+  const seen = new Set();
+  const out = [];
+  for (const key of sentenceKeys(pack, rec)) {
+    for (const { id, form } of store.sentencesOf(key)) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const [ja, en, tid] = store.sentence(id);
+      if (shown.has(ja)) continue;
+      out.push({ ja, en, id: tid, form });
+      if (out.length >= max) return out;
+    }
+  }
+  return out;
+}
+
+/**
+ * Everything the entry page shows for one record.
+ * opts.sentLoading: the sentence pack is still on its way -> sentences = null (page says "Loading sentences…").
+ */
+export function entryData(store, pack, id, { ranking = 'fiction', sentLoading = false } = {}) {
   const rec = store.getRecord(pack, id);
   const head = (rec.k && rec.k[0]) || (rec.r && rec.r[0]) || '';
   const reading = (rec.r && rec.r[0]) || '';
@@ -81,6 +127,7 @@ export function entryData(store, pack, id, { ranking = 'fiction' } = {}) {
     romaji: reading ? kanaToRomaji(reading) : '',
     kanji: kanjiBlocks(store, head),
     startsWith: [],
+    sentences: pack === 'names' ? [] : store.has('sent') ? sentencesFor(store, pack, rec) : sentLoading ? null : [],
   };
   // section 5: words that start with the headword (words pack only; not for names or records without kanji)
   if (pack !== 'names' && rec.k && rec.k.length && store.has('words')) {

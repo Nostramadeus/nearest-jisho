@@ -97,6 +97,37 @@ if (opened.words) {
   e.length ? ok(`e "dictionary" -> record ${e[0][0]} sense ${sense}: ${JSON.stringify(e[0][1].s[sense].g)}`) : fail('e "dictionary" does not reach 辞書');
 }
 
+// sentence pack (SPEC 13.3): records are [ja, en, tatoebaId]; key space h with parallel forms.
+if (fs.existsSync(path.join(OUT, 'sent.dat'))) {
+  const dat = fs.readFileSync(path.join(OUT, 'sent.dat'));
+  const off = u32(path.join(OUT, 'sent.off'));
+  const n = off.length - 1;
+  const rec = (i) => JSON.parse(dat.toString('utf8', off[i], off[i + 1]));
+  let mono = off[0] === 0 && off[n] === dat.length;
+  for (let i = 0; mono && i < n; i++) if (off[i + 1] <= off[i]) mono = false;
+  mono ? ok(`sent: ${n} records, offsets monotonic and span .dat`) : fail('sent: bad offsets');
+  for (const i of [0, 1, Math.floor(n / 3), Math.floor((2 * n) / 3), n - 1]) {
+    try {
+      const r = rec(i);
+      if (!Array.isArray(r) || r.length !== 3 || typeof r[0] !== 'string' || typeof r[1] !== 'string' || !Number.isInteger(r[2])) throw new Error('not [ja, en, id]');
+      ok(`sent[${i}] ${JSON.stringify(r).slice(0, 110)}`);
+    } catch (e) { fail(`sent[${i}]: ${e.message}`); }
+  }
+  const o = JSON.parse(fs.readFileSync(path.join(OUT, 'sent.keys.json'), 'utf8'));
+  const h = o.h;
+  const keys = h.keys.split('\n');
+  let sorted = true;
+  for (let i = 1; i < keys.length; i++) if (!(keys[i - 1] < keys[i])) { sorted = false; break; }
+  let good = h.ptr.length === keys.length + 1 && h.ptr[0] === 0 && h.ptr[h.ptr.length - 1] === h.ids.length && h.forms.length === h.ids.length;
+  for (let i = 0; good && i < h.ids.length; i++) if (h.ids[i] >= n || h.forms[i] >= o.formList.length) good = false;
+  for (let i = 0; good && i < keys.length; i++) if (h.ptr[i + 1] - h.ptr[i] > 25 || h.ptr[i + 1] <= h.ptr[i]) good = false;
+  sorted && good ? ok(`sent.h: ${keys.length} keys sorted, ${h.ids.length} ids and forms in range, 1..25 per key`) : fail(`sent.h: sorted=${sorted} ranges=${good}`);
+  const hits = ['辞書', '辞書\tじしょ'].map((k) => { const i = keys.indexOf(k); return i < 0 ? 0 : h.ptr[i + 1] - h.ptr[i]; });
+  hits[0] + hits[1] > 0 ? ok(`sent: 辞書 has ${hits[0]} sentences, 辞書<TAB>じしょ has ${hits[1]}`) : fail('sent: no sentence for 辞書');
+} else {
+  fail('sent: missing');
+}
+
 for (const f of ['kanji.json', 'version.json']) {
   try {
     const o = JSON.parse(fs.readFileSync(path.join(OUT, f), 'utf8'));

@@ -71,7 +71,7 @@ export const WORDS = [
   [{ k: ['今日は'], r: ['こんにちは', 'こんちは'], c: 1, s: [N(['int'], ['hello', 'good day'])] }, 200, 15000],
   [{ k: ['食べる'], r: ['たべる'], c: 1, j: 5, s: [N(['v1', 'vt'], ['to eat'])] }, 100, 2000],
   [{ k: ['柿'], r: ['かき'], c: 1, s: [N(['n'], ['kaki', 'persimmon'])] }, 9000, 20000],
-  [{ k: ['牡蠣'], r: ['かき'], s: [N(['n'], ['oyster'])] }, 12000, 30000],
+  [{ k: ['牡蠣'], r: ['かき'], s: [N(['n'], ['oyster'], { m: ['uk'] })] }, 12000, 30000],
   [{ k: ['下記'], r: ['かき'], c: 1, s: [N(['n'], ['the following'])] }, 14000, 3000],
   [{ k: ['書く'], r: ['かく'], c: 1, s: [N(['v5k', 'vt'], ['to write'])] }, 150, 800],
   [{ k: ['俺'], r: ['おれ'], c: 1, s: [N(['pn'], ['I', 'me'], { m: ['male'] })] }, 50, 9000],
@@ -111,6 +111,49 @@ export const KANJI = {
   '書': { m: ['write'], on: ['ショ'], kun: ['か.く'], s: 10, g: 2, j: 4, f: 169 },
 };
 
+// Sentence pack (SPEC 13.3): [Japanese, English, Tatoeba id]; keys -> [[sentence index, form], ...] in pack order.
+export const SENTENCES = [
+  ['辞書を引きなさい。', 'Look it up in the dictionary.', 1001],
+  ['辞書を引く。', 'I look it up in the dictionary.', 1002], // same text as the example under 辞書's first meaning
+  ['新しい辞書。', 'A new dictionary.', 1003],
+  ['この草は高い。', 'This grass is tall.', 1004],
+  ['くさが生えた。', 'Grass grew.', 1005],
+  ['ラーメンを食べた。', 'I ate ramen.', 1006],
+  ['もう食べたよ。', 'I already ate.', 1007],
+  ['かきを食べる。', 'I eat oysters.', 1008],
+];
+for (let i = 0; i < 29; i++) SENTENCES.push([`草${i}本。`, `Grass number ${i}.`, 2000 + i]);
+export const SENT_KEYS = {
+  '辞書\tじしょ': [[2, '辞書']],
+  '辞書': [[2, '辞書'], [1, '辞書'], [0, '辞書']],
+  '草\tくさ': [[3, '草'], ...Array.from({ length: 29 }, (_, i) => [8 + i, '草'])],
+  'くさ': [[4, 'くさ']],
+  'ラーメン': [[5, 'ラーメン']],
+  '食べる\tたべる': [[6, '食べちゃった']], // stored form not in the text: no mark
+  'かき': [[7, 'かき']],
+  '田中': [[0, '田中']],
+};
+
+export function writeSentPack(dir, sentences = SENTENCES, keys = SENT_KEYS) {
+  const enc = new TextEncoder();
+  const parts = sentences.map((x) => enc.encode(JSON.stringify(x)));
+  const off = [0];
+  for (const b of parts) off.push(off[off.length - 1] + b.length);
+  writeFileSync(join(dir, 'sent.dat'), Buffer.concat(parts.map((b) => Buffer.from(b))));
+  writeFileSync(join(dir, 'sent.off'), u32File(off));
+  const sorted = Object.keys(keys).sort();
+  const formList = [], formIdx = new Map();
+  const ptr = [0], ids = [], forms = [];
+  for (const k of sorted) {
+    for (const [id, form] of keys[k]) {
+      if (!formIdx.has(form)) { formIdx.set(form, formList.length); formList.push(form); }
+      ids.push(id); forms.push(formIdx.get(form));
+    }
+    ptr.push(ids.length);
+  }
+  writeFileSync(join(dir, 'sent.keys.json'), JSON.stringify({ h: { keys: sorted.join('\n'), ptr, ids, forms }, formList }));
+}
+
 /** Write all fixture packs into a fresh temp folder. Returns { dir, cleanup }. */
 export function makeFixture(layout = 'json') {
   const dir = mkdtempSync(join(tmpdir(), 'nj-fixture-'));
@@ -126,6 +169,8 @@ export function makeFixture(layout = 'json') {
       ...['r', 'k', 'e'].flatMap((s) => [`${name}.${s}.txt`, `${name}.${s}.ptr`, `${name}.${s}.ids`])];
     packs[name] = { n: rows.length, bytes: bytes(files) };
   }
+  writeSentPack(dir);
+  packs.sent = { n: SENTENCES.length, bytes: bytes(['sent.dat', 'sent.off', 'sent.keys.json']) };
   writeFileSync(join(dir, 'version.json'), JSON.stringify({ built: '2026-11-13', jmdict: 'fixture', packs }));
   return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
@@ -139,11 +184,12 @@ export function fsReader(dir) {
   };
 }
 
-export async function loadFixtureStore(layout = 'json') {
+export async function loadFixtureStore(layout = 'json', { sent = true } = {}) {
   const fx = makeFixture(layout);
   const store = new PackStore(fsReader(fx.dir));
   await store.loadVersion();
   for (const p of ['words', 'names', 'wikt']) await store.loadPack(p);
   await store.loadKanji();
+  if (sent) await store.loadSent();
   return { store, ...fx };
 }

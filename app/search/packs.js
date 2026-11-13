@@ -5,15 +5,20 @@
 import { fold, hash32 } from './fold.js';
 import { letterMask } from './cost.js';
 
-export const PACKS = ['words', 'names', 'wikt'];
+export const PACKS = ['words', 'names', 'wikt']; // searchable packs
+export const SENT = 'sent'; // Tatoeba sentence pack (SPEC 13): no .meta, key space "h" with forms
+/** Load order (SPEC 13.4). "kanji" is kanji.json. */
+export const LOAD_ORDER = ['words', 'kanji', 'wikt', 'sent', 'names'];
 export const SPACES = { words: ['r', 'k', 'e'], names: ['r', 'k'], wikt: ['r', 'k', 'e'] };
 
 /** Files of one pack in the default layout (used by the worker for progress and by the update downloader). */
 export function packFiles(pack) {
+  if (pack === SENT) return [`${pack}.dat`, `${pack}.off`, `${pack}.keys.json`];
   return [`${pack}.dat`, `${pack}.off`, `${pack}.meta`, `${pack}.keys.json`];
 }
 /** Files of the alternative binary key layout (SPEC 3, used when keys.json would exceed 60 MB). */
 export function packFilesBinary(pack) {
+  if (pack === SENT) return packFiles(pack); // the sentence pack has one layout only
   const out = [`${pack}.dat`, `${pack}.off`, `${pack}.meta`];
   for (const s of SPACES[pack]) out.push(`${pack}.${s}.txt`, `${pack}.${s}.ptr`, `${pack}.${s}.ids`);
   return out;
@@ -247,8 +252,8 @@ export class PackStore {
     if (p.spaces.e) p.spaces.e.masks();
   }
 
-  has(pack) { return !!this.packs[pack]; }
-  size(pack) { return this.packs[pack]?.n || 0; }
+  has(pack) { return pack === SENT ? !!this.sent : !!this.packs[pack]; }
+  size(pack) { return pack === SENT ? (this.sent ? this.sent.n : 0) : this.packs[pack]?.n || 0; }
   getRecord(pack, id) { return this.packs[pack].record(id); }
   meta(pack, id) { const m = this.packs[pack].meta; return { ff: m[id * 2], fn: m[id * 2 + 1] }; }
   /** rank per SPEC 4.6: ff for "fiction", fn for "news". */
@@ -260,6 +265,50 @@ export class PackStore {
     let c = p.common[id];
     if (!c) { c = p.record(id).c ? 2 : 1; p.common[id] = c; }
     return c === 2;
+  }
+
+  /**
+   * Load the sentence pack (SPEC 13.3): sent.dat + sent.off (records ["Japanese", "English", tatoebaId]) and
+   * sent.keys.json { h: { keys, ptr, ids, forms }, formList }.
+   */
+  async loadSent(onProgress) {
+    const total = this.version?.packs?.[SENT]?.bytes || 0;
+    let got = 0;
+    const onBytes = (n) => { got += n; if (onProgress && total) onProgress(Math.min(1, got / total)); };
+    const [dat, off, keys] = await Promise.all([
+      this.readFile(`${SENT}.dat`, onBytes), this.readFile(`${SENT}.off`, onBytes), this.readFile(`${SENT}.keys.json`, onBytes),
+    ]);
+    const obj = JSON.parse(td.decode(u8(keys)));
+    const h = obj.h;
+    const space = new KeySpace(h.keys, h.ptr, h.ids);
+    const forms = h.forms instanceof Uint32Array ? h.forms : Uint32Array.from(h.forms || []);
+    if (forms.length !== space.ids.length) throw new Error(`sent: forms length ${forms.length} != ids ${space.ids.length}`);
+    const offs = u32(off);
+    this.sent = { dat: u8(dat), off: offs, n: offs.length - 1, space, forms, formList: obj.formList || [], cache: new Map() };
+    if (onProgress) onProgress(1);
+    return this.sent;
+  }
+
+  /** Sentences stored under one key: [{ id, form }] in pack order (empty when the key does not exist). */
+  sentencesOf(key) {
+    const S = this.sent;
+    if (!S) return [];
+    const i = S.space.find(key);
+    if (i < 0) return [];
+    const out = [];
+    for (let p = S.space.ptr[i]; p < S.space.ptr[i + 1]; p++) out.push({ id: S.space.ids[p], form: S.formList[S.forms[p]] || '' });
+    return out;
+  }
+
+  /** One sentence record: ["Japanese text", "English text", tatoebaId]. */
+  sentence(id) {
+    const S = this.sent;
+    let rec = S.cache.get(id);
+    if (rec) return rec;
+    rec = JSON.parse(td.decode(S.dat.subarray(S.off[id], S.off[id + 1])));
+    if (S.cache.size > 2000) S.cache.clear();
+    S.cache.set(id, rec);
+    return rec;
   }
 
   async loadKanji() {

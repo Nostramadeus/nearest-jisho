@@ -46,7 +46,7 @@ const NAMES_FIRST = 10;
 
 // ---------- worker ----------
 const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-const PACK_LABEL = { words: 'words', names: 'names', wikt: 'Wiktionary' };
+const PACK_LABEL = { words: 'words', names: 'names', wikt: 'Wiktionary', sent: 'sentences' };
 
 worker.onmessage = (ev) => {
   const m = ev.data;
@@ -58,6 +58,7 @@ worker.onmessage = (ev) => {
       break;
     case 'loaded':
       S.loaded[m.pack] = true;
+      if (m.pack === 'sent') { if (S.view === 'entry' && S.entry) refreshEntry(); break; } // fills "Loading sentences…"
       if (S.query) runSearch(); // results gain this pack
       break;
     case 'packError':
@@ -202,6 +203,13 @@ function showEntry(addr) {
   window.scrollTo(0, 0);
   S.entryReq++;
   worker.postMessage({ type: 'entry', id: S.entryReq, pack: addr.p, w: addr.w, r: addr.r, ranking: S.ranking });
+}
+
+/** Ask again for the open entry (same page, same scroll position), e.g. when the sentence pack arrives. */
+function refreshEntry() {
+  S.entryReq++;
+  const a = S.entry;
+  worker.postMessage({ type: 'entry', id: S.entryReq, pack: a.p, w: a.w, r: a.r, ranking: S.ranking });
 }
 
 function onEntry(m) {

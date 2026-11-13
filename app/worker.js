@@ -1,5 +1,5 @@
 // Web Worker shell (SPEC 6): picks the data set, loads packs, runs the engine, posts results.
-import { PackStore, PACKS, packFiles, packFilesBinary, KANJI_FILE, VERSION_FILE } from './search/packs.js';
+import { PackStore, PACKS, SENT, LOAD_ORDER, packFiles, packFilesBinary, KANJI_FILE, VERSION_FILE } from './search/packs.js';
 import { search } from './search/engine.js';
 import { findEntry, entryData } from './search/entry.js';
 
@@ -16,6 +16,8 @@ let store = null;
 let current = null; // { kind: 'bundled' | 'cache', cacheName, version }
 let latestSeq = 0;
 const loaded = {};
+const failed = {};
+let kanjiDone = false;
 const pendingEntries = []; // entry requests that wait for their pack (direct visit to an entry address)
 let started = false;      // all packs attempted
 
@@ -103,22 +105,29 @@ async function start() {
   store = new PackStore(makeReader(current));
   store.version = current.version;
   post({ type: 'version', built: current.version.built });
-  for (const p of PACKS) {
+  // SPEC 13.4 load order: words, kanji, wikt, sent, names. A missing or failed pack never blocks the others.
+  for (const p of LOAD_ORDER) {
+    if (p === 'kanji') {
+      try { await store.loadKanji(); } catch { /* kanji blocks show only the character */ }
+      kanjiDone = true;
+      flushEntries();
+      continue;
+    }
     if (!current.version.packs || !current.version.packs[p]) continue;
     try {
+      const onProgress = (f) => post({ type: 'progress', pack: p, pct: Math.floor(f * 100) });
       post({ type: 'progress', pack: p, pct: 0 });
-      await store.loadPack(p, (f) => post({ type: 'progress', pack: p, pct: Math.floor(f * 100) }));
-      store.warm(p);
+      if (p === SENT) await store.loadSent(onProgress);
+      else { await store.loadPack(p, onProgress); store.warm(p); }
       loaded[p] = true;
-      // kanji data right after the words pack, so entry pages opened early have their kanji blocks
-      if (p === 'words' && !store.kanjiData) { try { await store.loadKanji(); } catch { /* blocks show only the character */ } }
       post({ type: 'loaded', pack: p });
       flushEntries();
     } catch (e) {
-      post({ type: 'packError', pack: p, message: String(e && e.message || e) });
+      failed[p] = true;
+      if (p === SENT) post({ type: 'loaded', pack: p, failed: true }); // the entry page drops "Loading sentences…"
+      else post({ type: 'packError', pack: p, message: String(e && e.message || e) });
     }
   }
-  if (!store.kanjiData) { try { await store.loadKanji(); } catch { /* blocks show only the character */ } }
   started = true;
   flushEntries();
   post({ type: 'done' });
@@ -149,7 +158,7 @@ async function checkUpdate() {
   }
   const cache = await caches.open(name);
   try {
-    for (const p of PACKS) {
+    for (const p of [...PACKS, SENT]) { // the sentence pack updates like every other pack (SPEC 13.4)
       if (!remote.packs || !remote.packs[p]) continue;
       try {
         for (const f of packFiles(p)) await fetchToCache(cache, f);
@@ -182,13 +191,18 @@ function runSearch(m, phase) {
 // Entry page (SPEC 10.2): answered once its pack and the kanji data are in (or every pack was tried).
 function answerEntry(m) {
   const id = findEntry(store, m.pack, m.w, m.r);
-  const data = id < 0 ? null : entryData(store, m.pack, id, { ranking: m.ranking });
+  // sentences: still loading only while the sentence pack is listed and neither loaded nor failed
+  const sentLoading = !!(current.version.packs && current.version.packs[SENT]) && !loaded[SENT] && !failed[SENT];
+  const data = id < 0 ? null : entryData(store, m.pack, id, { ranking: m.ranking, sentLoading });
   post({ type: 'entry', id: m.id, pack: m.pack, w: m.w, r: m.r, data });
+}
+function entryReady(m) {
+  return started || (loaded[m.pack] && kanjiDone);
 }
 function flushEntries() {
   for (let i = pendingEntries.length - 1; i >= 0; i--) {
     const m = pendingEntries[i];
-    if ((loaded[m.pack] && store.kanjiData) || started) { pendingEntries.splice(i, 1); answerEntry(m); }
+    if (entryReady(m)) { pendingEntries.splice(i, 1); answerEntry(m); }
   }
 }
 
@@ -201,7 +215,7 @@ self.onmessage = (ev) => {
     // a newer query cancels older work: the full phase runs only if nothing newer arrived meanwhile
     setTimeout(() => { if (m.seq === latestSeq) runSearch(m, 'full'); }, 0);
   } else if (m.type === 'entry') {
-    if (store && ((loaded[m.pack] && store.kanjiData) || started)) answerEntry(m);
+    if (store && entryReady(m)) answerEntry(m);
     else pendingEntries.push(m);
   }
 };

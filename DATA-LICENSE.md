@@ -12,7 +12,8 @@ additional terms each source names.
 | Commonness tags (news ranking) | JMdict (`JMdict_e.gz`, EDRDG) | CC BY-SA 4.0 (EDRDG licence) | https://www.edrdg.org/jmdict/j_jmdict.html |
 | Names (pack `names`) | JMnedict, EDRDG, via jmdict-simplified | CC BY-SA 4.0 (EDRDG licence) | https://www.edrdg.org/enamdict/enamdict_doc.html |
 | Kanji information (`kanji.json`) | KANJIDIC2, EDRDG, via jmdict-simplified. Only literal, English meanings, on/kun readings, nanori, stroke count, grade, JLPT level and frequency are kept; SKIP codes and other third-party index fields are not included | CC BY-SA 4.0 (EDRDG licence) | https://www.edrdg.org/wiki/index.php/KANJIDIC_Project |
-| Example sentences | Tatoeba (sentences linked to JMdict senses, via jmdict-simplified) | CC BY 2.0 FR | https://tatoeba.org/en/downloads |
+| Example sentences under meanings | Tatoeba (sentences linked to JMdict senses, via jmdict-simplified) | CC BY 2.0 FR | https://tatoeba.org/en/downloads |
+| Sentences with this word (pack `sent`) | Tatoeba exports `jpn_sentences`, `eng_sentences`, `jpn_indices` | CC BY 2.0 FR (some sentences CC0) | https://tatoeba.org/en/downloads |
 | Slang and extra entries, English definitions (pack `wikt`, `src: "we"`) | English Wiktionary, extracted by kaikki.org (wiktextract) | CC BY-SA 4.0 (Wiktionary is dual-licensed CC BY-SA 4.0 and GFDL; this project uses the CC BY-SA 4.0 option) | https://en.wiktionary.org/wiki/Wiktionary:Copyrights ; https://kaikki.org/dictionary/Japanese/ |
 | Slang, Japanese definitions (pack `wikt`, `src: "wj"`) | Japanese Wiktionary, extracted by kaikki.org (wiktextract) | CC BY-SA 4.0 (as above) | https://ja.wiktionary.org/ ; https://kaikki.org/jawiktionary/index.html |
 | Fiction and media ranking | jiten.moe frequency list (global) | CC BY-SA 4.0 | https://jiten.moe/frequency-dictionaries |
@@ -33,8 +34,9 @@ where the full list of authors is in the page history. Data extracted with wikte
 
 **jiten.moe.** Word frequency ranks from jiten.moe (https://jiten.moe), CC BY-SA 4.0.
 
-**Tatoeba.** Example sentences from the Tatoeba Project (https://tatoeba.org), CC BY 2.0 FR. Many of the
-Japanese and English sentences are from the Tanaka Corpus, which is in the public domain.
+**Tatoeba.** Example sentences from the Tatoeba project (https://tatoeba.org), CC BY 2.0 FR; each sentence links
+to its Tatoeba page, which names its authors. Many of the Japanese and English sentences are from the Tanaka
+Corpus, which is in the public domain.
 
 **JLPT levels.** From stephenmk/yomitan-jlpt-vocab (CC BY-SA 4.0). "JLPT data is sourced from Jonathan Waller's
 JLPT Resources page under the terms of the Creative Commons BY license."

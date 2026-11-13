@@ -43,6 +43,8 @@ test('worker: progress, loaded packs, fast then full result, entry', async () =>
     const en = await until((m) => m.type === 'entry' && m.id === 7);
     assert.deepEqual(en.data.rec.k, ['辞書']);
     assert.equal(en.data.kanji[0].data.s, 13);
+    assert.deepEqual(en.data.sentences.map((s) => s.id), [1003, 1001]); // sentence pack loaded (SPEC 13.4)
+    assert.ok(msgs.some((m) => m.type === 'loaded' && m.pack === 'sent'));
     globalThis.onmessage({ data: { type: 'entry', id: 8, pack: 'words', w: '無い語', r: 'ないご', ranking: 'fiction' } });
     assert.equal((await until((m) => m.type === 'entry' && m.id === 8)).data, null);
   } finally {

@@ -371,3 +371,47 @@ Data already updates by itself (section 6). This section does the same for the a
 - `sw.js` must call `self.skipWaiting()` on install and `clients.claim()` on activate (keep if already there).
 - Limit, stated in README: changes to the native wrapper itself (Capacitor / Tauri versions, permissions, icons)
   still need a reinstall. Everything in `app/` updates by itself.
+
+## 13. Sentence pack from Tatoeba (added 2026-11-13)
+
+Goal: the entry page shows up to 25 real sentences that use the word, like the phrases tab of other dictionary apps.
+
+### 13.1 Sources (Tatoeba exports, text is CC BY 2.0 FR, part CC0)
+- `https://downloads.tatoeba.org/exports/per_language/jpn/jpn_sentences.tsv.bz2` (id, lang, text)
+- `https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences.tsv.bz2` (id, lang, text)
+- `https://downloads.tatoeba.org/exports/jpn_indices.tar.bz2` (sentence id, meaning id = the paired English
+  sentence id, index text). Index text = space-separated tokens `headword(reading)[sense]{form}~`; every part after
+  the headword is optional; `{form}` is the word as it appears in the sentence; `~` marks a checked good example.
+- bzip2 is not in the node standard library: the build spawns the system `bzip2 -dc` (and `tar` for the .tar.bz2)
+  as ONE child process at a time and streams its stdout. If the tools are missing or a URL fails, the build skips
+  this pack with a clear warning locally, and FAILS on CI (`process.env.CI`).
+
+### 13.2 Selection
+- A sentence is usable when its Japanese text and its English text (by meaning id) both exist.
+- Index keys: for every token of a usable sentence, key `headword` when the token has no reading, and key
+  `headword<TAB>reading` when it has one (reading in hiragana).
+- Per key keep at most 25 sentences, ordered by: tokens marked `~` first; then Japanese text length ascending, but
+  sentences shorter than 6 characters go last; then sentence id. Sentences kept by no key are dropped from the pack.
+
+### 13.3 Pack `sent` (files in `app/data/`, listed in `version.json` like the other packs)
+- `sent.dat` + `sent.off`: records are compact JSON arrays `["Japanese text","English text",tatoebaId]`.
+- `sent.keys.json`: `{ "h": { "keys": "<sorted unique keys joined by \n>", "ptr": [...], "ids": [...], "forms": [...] },
+  "formList": [strings] }`. `ids` are record ids in the 13.2 order; `forms` is parallel to `ids` and indexes
+  `formList` (the `{form}` of that token, or the headword when the token has none). No `.meta` file.
+- `build/verify-data.mjs` checks the pack (offsets, sorted keys, id ranges, 5 samples decode, and that the key `辞書`
+  or `辞書<TAB>じしょ` has at least one sentence).
+
+### 13.4 App
+- Load order becomes: words, kanji, wikt, sent, names. A missing or failed `sent` pack never blocks anything.
+- Lookup for a words or wikt record: the union, in this order, of keys `k<TAB>r` and `k` for every kanji form `k` and
+  kana form `r` of the record; for a record with no kanji form, or with a sense marked `uk`, also the keys `r` for
+  every kana form. Duplicates removed, order kept, max 25. Sentences whose Japanese text equals an example already
+  shown under a meaning are left out. Names records get no sentences.
+- Entry page: new section between "Meanings" and "Kanji in this word", title `Sentences with this word (N)`:
+  each item = the Japanese line with the stored form wrapped in `<mark>` (first occurrence; no mark when not found),
+  the English line, and a small link `Tatoeba #<id>` -> `https://tatoeba.org/sentences/show/<id>` (new tab / system
+  browser). All shown without a click. While the pack is still loading the section says `Loading sentences…` and
+  fills in when the pack arrives; when the word has none the section is omitted.
+- The update check (section 6) treats `sent` like every other pack.
+- `DATA-LICENSE.md` and `app/about.html`: Tatoeba entry updated: "Example sentences from the Tatoeba project
+  (https://tatoeba.org), CC BY 2.0 FR; each sentence links to its Tatoeba page, which names its authors."

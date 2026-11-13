@@ -131,6 +131,11 @@ mark { background: none; color: var(--acc); font-weight: 700; }
 .starts { list-style: none; margin: 0; padding: 0; }
 .starts li { padding: 4px 0; border-bottom: 1px solid var(--line); margin: 0; }
 .links ul { list-style: none; margin: 0; padding: 0; }
+.sents { margin: 0; padding-left: 22px; }
+.sents .sent { margin-bottom: 8px; }
+.sents .ja { display: block; }
+.sents .en { display: block; color: var(--dim); font-size: 14px; }
+.sents .tatoeba { font-size: 11px; color: var(--dim); }
 .favview { padding: 8px 0; }
 .fav-head { display: flex; align-items: center; gap: 12px; padding: 4px 16px 8px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .fav-head h2 { font-size: 15px; margin: 0; }
