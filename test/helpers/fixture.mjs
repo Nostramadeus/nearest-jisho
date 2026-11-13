@@ -93,12 +93,25 @@ export const WORDS = [
   [{ k: ['時刻'], r: ['じこく'], c: 1, s: [N(['n'], ['time', 'hour'])] }, 1000, 1000],
   [{ k: ['字書'], r: ['じしょ'], c: 1, s: [N(['n'], ['character dictionary'])] }, 20000, 999999],
   [{ r: ['がっこ'], s: [N(['n'], ['tsukemono', 'Japanese pickled vegetables'], { d: ['thb'] })] }, 600, 999999],
+  // SPEC 17 (words in a text): particles and a few nouns
+  [{ r: ['の'], c: 1, s: [N(['prt'], ['indicates possessive'])] }, 5, 5],                 // 33
+  [{ r: ['は'], c: 1, s: [N(['prt'], ['indicates sentence topic'])] }, 6, 6],             // 34
+  [{ k: ['歯'], r: ['は'], c: 1, s: [N(['n'], ['tooth'])] }, 3, 3],                        // 35: better rank than the particle
+  [{ r: ['まで'], c: 1, s: [N(['prt'], ['until', 'as far as'])] }, 30, 30],               // 36
+  [{ k: ['空'], r: ['そら'], c: 1, s: [N(['n'], ['sky'])] }, 700, 700],                   // 37
+  [{ k: ['彼方'], r: ['かなた', 'あなた'], s: [N(['n'], ['far away'])] }, 5000, 5000],     // 38
+  [{ k: ['子供'], r: ['こども'], c: 1, s: [N(['n'], ['child'])] }, 400, 400],             // 39
+  [{ r: ['え'], s: [N(['n'], ['picture'])] }, 900, 900],                                    // 40: one kana, not a function word
+  [{ k: ['中学校'], r: ['ちゅうがっこう'], c: 1, s: [N(['n'], ['junior high school'])] }, 3000, 3000], // 41
+  [{ k: ['若草'], r: ['わかくさ'], s: [N(['n'], ['young grass'])] }, 9000, 9000],          // 42
+  [{ k: ['草草'], r: ['くさくさ'], s: [N(['adj-t'], ['gloomy'])] }, 20000, 20000],          // 43: starts AND ends with 草
 ];
 
 export const NAMES = [
   [{ k: ['田中'], r: ['たなか'], t: ['surname'], g: ['Tanaka'] }, 999999, 999999],
   [{ k: ['中田'], r: ['なかた'], t: ['surname'], g: ['Nakata'] }, 999999, 999999],
   [{ k: ['辞書'], r: ['じしょ'], t: ['place'], g: ['Jisho'] }, 999999, 999999],
+  [{ k: ['佐藤'], r: ['さとう'], t: ['surname'], g: ['Satou'] }, 999999, 999999],
 ];
 
 export const WIKT = [

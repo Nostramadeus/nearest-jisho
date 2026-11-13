@@ -114,6 +114,36 @@ export function sentencesFor(store, pack, rec, max = SENTENCE_MAX) {
   return out;
 }
 
+export const SUFFIX_SCAN_MAX = 2000;
+
+/**
+ * Records whose written form (space k) ends with `suffix` and is longer than it (SPEC 17.5): substring scan over the
+ * key string, keeping hits at a key end, at most 2,000 scanned hits; ordered by rank, shorter key, record id.
+ */
+export function suffixRecords(store, pack, suffix, { ranking = 'fiction', max = 20, skip = new Set() } = {}) {
+  const ks = store.keySpace(pack, 'k');
+  if (!ks || !suffix) return [];
+  const str = ks.str, n = suffix.length;
+  const best = new Map(); // id -> key length
+  let scanned = 0;
+  for (let pos = str.indexOf(suffix); pos !== -1 && scanned < SUFFIX_SCAN_MAX; pos = str.indexOf(suffix, pos + 1)) {
+    scanned++;
+    const end = pos + n;
+    if (end !== str.length && str.charCodeAt(end) !== 10) continue; // not at the end of a key
+    const i = ks.indexAt(pos);
+    const len = ks.keyLen(i);
+    if (len <= n) continue; // the headword itself
+    for (const id of ks.idsOf(i)) {
+      if (skip.has(id)) continue;
+      if (!best.has(id) || len < best.get(id)) best.set(id, len);
+    }
+  }
+  return Array.from(best, ([id, len]) => ({ id, len, rank: store.rank(pack, id, ranking) }))
+    .sort((a, b) => a.rank - b.rank || a.len - b.len || a.id - b.id)
+    .slice(0, max)
+    .map((x) => x.id);
+}
+
 /**
  * Everything the entry page shows for one record.
  * opts.sentLoading: the sentence pack is still on its way -> sentences = null (page says "Loading sentences…").
@@ -127,17 +157,24 @@ export function entryData(store, pack, id, { ranking = 'fiction', sentLoading = 
     romaji: reading ? kanaToRomaji(reading) : '',
     kanji: kanjiBlocks(store, head),
     startsWith: [],
+    endsWith: [],
     sentences: pack === 'names' ? [] : store.has('sent') ? sentencesFor(store, pack, rec) : sentLoading ? null : [],
   };
   // section 5: words that start with the headword (words pack only; not for names or records without kanji)
   if (pack !== 'names' && rec.k && rec.k.length && store.has('words')) {
     const exclude = pack === 'words' ? id : -1;
-    data.startsWith = prefixRecords(store, 'words', head, { ranking, max: 20, exclude }).map(({ id: wid }) => {
+    const row = (wid) => {
       const wr = store.getRecord('words', wid);
       const a = entryAddress('words', wr);
       const first = wr.s && wr.s[0] && wr.s[0].g ? wr.s[0].g[0] : '';
       return { ...a, head: a.w, reading: (wr.k && wr.k.length) ? a.r : '', gloss: first };
-    });
+    };
+    const starts = prefixRecords(store, 'words', head, { ranking, max: 20, exclude });
+    data.startsWith = starts.map(({ id: wid }) => row(wid));
+    // section 17.5: words that END with the headword (the record itself and the start-with rows excluded)
+    const skip = new Set(starts.map((x) => x.id));
+    if (exclude >= 0) skip.add(exclude);
+    data.endsWith = suffixRecords(store, 'words', head, { ranking, max: 20, skip }).map(row);
   }
   return data;
 }

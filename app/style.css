@@ -181,3 +181,13 @@ mark { background: none; color: var(--acc); font-weight: 700; }
   .card .body { flex-basis: auto; }
 }
 .fav .fav-star { margin-left: auto; }
+/* SPEC 17.4: Words in this text */
+.textline { margin: 0; padding: 10px 16px; font-size: 18px; line-height: 1.9; border-bottom: 1px solid var(--line); }
+.textline .chip { font: inherit; color: var(--ink); background: var(--tag); border: 1px solid var(--line); border-radius: 6px; padding: 0 4px; margin: 0 1px; cursor: pointer; }
+.textline .unk { color: var(--dim); }
+.textnote { margin: 0; padding: 4px 16px; font-size: 12px; color: var(--dim); border-bottom: 1px solid var(--line); }
+.titem .others { margin: 0; padding: 0 16px 10px; font-size: 13px; border-bottom: 1px solid var(--line); }
+.fnrow { display: block; padding: 8px 16px; border-bottom: 1px solid var(--line); color: var(--ink); text-decoration: none; }
+.fnrow .seg { font-size: 18px; }
+.fnrow:hover .seg, .fnrow:focus-visible .seg { color: var(--acc); }
+.titem.flash .card, .titem.flash .fnrow { outline: 2px solid var(--acc); outline-offset: -2px; }

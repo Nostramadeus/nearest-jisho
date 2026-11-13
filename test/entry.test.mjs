@@ -81,8 +81,8 @@ test('entry page for a names record', () => {
 
 test('entry page for a Wiktionary record', () => {
   const html = entryHtml(entryData(store, 'wikt', 0));
-  // no words-pack record starts with 草 in the fixture (草 itself is the exact key, not a prefix match): omitted
-  assert.deepEqual(sectionTitles(html), ['Meanings', 'Sentences with this word (25)', 'Kanji in this word', 'Links']);
+  // 草草 starts (and ends) with 草, 若草 ends with 草 (fixture records 42, 43)
+  assert.deepEqual(sectionTitles(html), ['Meanings', 'Sentences with this word (25)', 'Kanji in this word', 'Words that start with 草', 'Words that end with 草', 'Links']);
   assert.ok(!html.includes('Other forms'));
   assert.match(html, /<span class="tag g">Wiktionary<\/span>/);
   assert.match(html, /Internet slang/);

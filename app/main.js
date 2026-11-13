@@ -513,6 +513,25 @@ resultsEl.addEventListener('click', (e) => {
   }
   const star = e.target.closest('button.star');
   if (star) { onStar(star); return; } // the star never opens the entry page
+  // SPEC 17.4: a chip scrolls to its segment's item and flashes its border once
+  const chip = e.target.closest('button.chip');
+  if (chip) {
+    const item = resultsEl.querySelector(`#t-${chip.dataset.item}`);
+    if (item) {
+      if (item.scrollIntoView) item.scrollIntoView({ block: 'start' });
+      item.classList.add('flash');
+      setTimeout(() => item.classList.remove('flash'), 600);
+    }
+    return;
+  }
+  const fnrow = e.target.closest('a.fnrow');
+  if (fnrow) {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    if (S.query.trim()) addRecent(S.query);
+    openEntry(parseEntryHash(fnrow.getAttribute('href')));
+    return;
+  }
   const card = e.target.closest('.card');
   if (!card) return;
   if (S.query.trim()) addRecent(S.query); // a tap counts as a finished search

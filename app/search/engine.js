@@ -4,8 +4,10 @@ import { canon, hasKana, romajiToKana, kanaToRomaji, toHiragana } from './romaji
 import { fold } from './fold.js';
 import { prepareQuery, distance, budget, reasonFor, letterMask, popcount, INF } from './cost.js';
 import { deinflect, posBits } from './deinflect.js';
+import { segmentText, isFunctionWord, TEXT_MAX_CHARS, TEXT_MIN_CHARS } from './segment.js';
 
 export const TITLES = {
+  text: 'Words in this text',
   words: 'Japanese words',
   en: 'English meanings',
   names: 'Names',
@@ -622,6 +624,14 @@ export function search(store, query, opts = {}) {
     order = enFirst ? [gEn, gWords, gWikt, gNames] : [gWords, gEn, gWikt, gNames];
   }
   out.groups = order.filter((g) => g.results.length);
+  // SPEC 17.1: "Words in this text" first, for kana / kanji queries without a tier-0 hit (phase full only)
+  if (ctx.phase === 'full' && kind !== 'latin' && !hasTier0(hits.words) && !hasTier0(hits.wikt)) {
+    const n = Array.from(typed).length;
+    if (n >= TEXT_MIN_CHARS) {
+      const tg = textGroup(store, ctx, typed);
+      if (tg) out.groups.unshift(tg);
+    }
+  }
   // "No exact match" line: only when no group has a tier-0 or tier-1 hit; then the first group (in display order)
   // that carries a did-you-mean (Japanese 4.4 or English 4.9). See PROGRESS-app.md open question Q3.
   const anyExact = out.groups.some((g) => g.best && g.best.tier <= 1);
@@ -631,6 +641,57 @@ export function search(store, query, opts = {}) {
   }
   for (const g of out.groups) delete g.best;
   return out;
+}
+
+function hasTier0(map) {
+  for (const h of map.values()) if (h.tier === 0) return true;
+  return false;
+}
+
+export const TEXT_SEGMENTS_MAX = 60;
+export const TEXT_NOTE = 'Split automatically; long kana runs can be wrong.';
+export const TEXT_CUT_NOTE = 'Only the first 500 characters are analysed.';
+export const TEXT_MORE_NOTE = 'Showing the first 60 words.';
+
+/**
+ * The "Words in this text" group (SPEC 17): segments in text order, one result per distinct record (at most 60
+ * word segments), function words as compact rows. group.segments = line 1 (chips, unknown runs, separators).
+ */
+function textGroup(store, ctx, typed) {
+  const { segments, truncated } = segmentText(store, typed, { ranking: ctx.ranking });
+  const words = segments.filter((x) => x.kind === 'word');
+  if (!words.length) return null;
+  const results = [];
+  const itemOf = new Map(); // pack:id -> result index
+  const line = [];
+  let shown = 0;
+  for (const seg of segments) {
+    if (seg.kind !== 'word') { line.push({ kind: seg.kind, text: seg.text }); continue; }
+    if (shown >= TEXT_SEGMENTS_MAX) { line.push({ kind: 'more', text: seg.text }); continue; }
+    shown++;
+    const key = `${seg.pack}:${seg.id}`;
+    if (!itemOf.has(key)) {
+      itemOf.set(key, results.length);
+      const rec = store.getRecord(seg.pack, seg.id);
+      const fn = isFunctionWord(store, seg);
+      const r = {
+        pack: seg.pack, id: seg.id, tier: 0, cost: 0, via: seg.via || null, space: 'k', key: seg.text,
+        hl: { space: 'k', form: seg.text, len: -1 }, segment: seg.text, others: seg.others, fn,
+      };
+      if (seg.via) {
+        r.base = seg.base;
+        const head = (rec.k || []).includes(seg.base) ? seg.base : ((rec.k || [])[0] || seg.base);
+        r.note = `${seg.text} is the ${seg.via} form of ${head}`;
+      }
+      results.push(r);
+    }
+    line.push({ kind: 'word', text: seg.text, item: itemOf.get(key) });
+  }
+  const notes = [TEXT_NOTE];
+  if (truncated) notes.push(TEXT_CUT_NOTE);
+  if (words.length > TEXT_SEGMENTS_MAX) notes.push(TEXT_MORE_NOTE);
+  return { id: 'text', title: TITLES.text, note: notes.join(' '), notes, results, total: results.length, dym: null,
+    best: results[0], segments: line, wordCount: words.length };
 }
 
 function countTier(map, maxTier) {

@@ -90,6 +90,19 @@ function show(q) {
   console.log(`\n== ${q}  (${res.kind}, canon "${res.canon}", ${ms} ms, ranking ${ranking})`);
   if (res.didYouMean) console.log(`   ${didYouMeanText(res.didYouMean)}`);
   for (const g of res.groups) {
+    if (g.id === 'text') { // SPEC 17: the split line, then one row per segment: text -> headword (reading)
+      console.log(`  [${g.title}] ${g.wordCount} words; ${(g.notes || []).join(' ')}`);
+      console.log(`   split: ${g.segments.map((x) => (x.kind === 'word' ? `[${x.text}]` : x.kind === 'unknown' ? `?${x.text}?` : x.text)).join('')}`);
+      for (const x of g.segments) {
+        if (x.kind !== 'word') continue;
+        const h = g.results[x.item];
+        const r = store.getRecord(h.pack, h.id);
+        const hw = (r.k && r.k[0]) || (r.r && r.r[0]);
+        const extra = [h.pack !== 'words' ? h.pack : '', h.fn ? 'function word' : '', h.via ? `via ${h.via}` : '', h.others ? `${h.others} other entries` : ''].filter(Boolean).join(', ');
+        console.log(`   ${x.text} -> ${hw} (${(r.r || [])[0] || ''})${extra ? `  [${extra}]` : ''}`);
+      }
+      continue;
+    }
     console.log(`  [${g.title}] ${g.total} results`);
     g.results.slice(0, top).forEach((h, i) => console.log(`   ${String(i + 1).padStart(2)}. ${line(h)}`));
   }

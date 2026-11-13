@@ -205,11 +205,11 @@ export function entryHtml(d, opts = {}) {
     html += sec(`Sentences with this word (${d.sentences.length})`, `<ol class="sents">${d.sentences.map(sentenceHtml).join('')}</ol>`);
   }
   if (d.kanji.length) html += sec('Kanji in this word', d.kanji.map((b) => kanjiBlockHtml(b.literal, b.data)).join(''));
-  if (d.startsWith.length) {
-    html += sec(`Words that start with <span lang="ja">${esc(head)}</span>`, `<ul class="starts">${d.startsWith.map((x) =>
-      `<li><a href="${esc(entryHash(x))}"><span lang="ja">${esc(x.head)}</span>${x.reading ? ` <span class="kana" lang="ja">${esc(x.reading)}</span>` : ''}</a>` +
-      `${x.gloss ? ` <span class="info">${esc(x.gloss)}</span>` : ''}</li>`).join('')}</ul>`);
-  }
+  const wordRows = (list) => `<ul class="starts">${list.map((x) =>
+    `<li><a href="${esc(entryHash(x))}"><span lang="ja">${esc(x.head)}</span>${x.reading ? ` <span class="kana" lang="ja">${esc(x.reading)}</span>` : ''}</a>` +
+    `${x.gloss ? ` <span class="info">${esc(x.gloss)}</span>` : ''}</li>`).join('')}</ul>`;
+  if (d.startsWith.length) html += sec(`Words that start with <span lang="ja">${esc(head)}</span>`, wordRows(d.startsWith));
+  if (d.endsWith && d.endsWith.length) html += sec(`Words that end with <span lang="ja">${esc(head)}</span>`, wordRows(d.endsWith));
   const links = [ext(`https://ja.wikipedia.org/w/index.php?search=${encodeURIComponent(head)}`, `Search Wikipedia for "${esc(head)}"`)];
   if (isWikt && rec.u) links.push(ext(rec.u, rec.src === 'wj' ? 'Open in Japanese Wiktionary' : 'Open in Wiktionary'));
   if (pack === 'words') links.push(ext(`https://jisho.org/search/${encodeURIComponent(head)}`, 'Look up on Jisho.org'));
@@ -220,6 +220,7 @@ export function entryHtml(d, opts = {}) {
 /** All groups of one search result as HTML (SPEC 4.4 "Did you mean" line before tier-3 near results). */
 export function groupsHtml(groups, opts = {}) {
   return groups.map((g, gi) => {
+    if (g.id === 'text') return textGroupHtml(g, gi, opts);
     let html = `<section class="group" data-group="${esc(g.id)}"><h2>${esc(g.title)} <span class="count">${g.total}</span></h2>`;
     let nearShown = false;
     g.results.forEach((h, ri) => {
@@ -278,4 +279,44 @@ export function updateBarHtml(state) {
       return `<span class="msg">${esc(state.text)}</span>${btn('retry', 'Try again')}${btn('close', 'Close')}`;
   }
   return '';
+}
+
+/**
+ * "Words in this text" (SPEC 17.4): line 1 = the text with a chip per word (unknown runs dim, separators kept),
+ * then one item per distinct record in text order: a compact row for function words, else the normal card plus
+ * the deinflection note and "N other entries for <segment>".
+ */
+export function textGroupHtml(g, gi, opts = {}) {
+  const words = g.wordCount || g.results.length;
+  let html = `<section class="group textgroup" data-group="text"><h2>${esc(g.title)} <span class="count">${words}</span></h2>`;
+  html += '<p class="textline" lang="ja">' + (g.segments || []).map((x) => {
+    if (x.kind === 'word') return `<button type="button" class="chip" data-item="${x.item}">${esc(x.text)}</button>`;
+    if (x.kind === 'unknown') return `<span class="unk">${esc(x.text)}</span>`;
+    return esc(x.text); // separators, and text after the first 60 words
+  }).join('') + '</p>';
+  for (const n of g.notes || (g.note ? [g.note] : [])) html += `<p class="textnote">${esc(n)}</p>`;
+  g.results.forEach((h, i) => {
+    html += `<div class="titem" id="t-${i}">`;
+    if (h.fn) html += functionRowHtml(h);
+    else {
+      html += cardHtml(h, gi, i, opts);
+      if (h.others > 0) {
+        html += `<p class="others"><a href="#q=${encodeURIComponent(h.segment)}">${h.others} other entr${h.others === 1 ? 'y' : 'ies'} for <span lang="ja">${esc(h.segment)}</span></a></p>`;
+      }
+    }
+    html += '</div>';
+  });
+  return html + '</section>';
+}
+
+/** Compact row for a function word: segment, reading, part of speech in full words, first gloss; links to the entry. */
+export function functionRowHtml(h) {
+  const rec = h.rec;
+  const reading = (rec.r || [])[0] || '';
+  const pos = ((rec.s && rec.s[0] && rec.s[0].p) || []).map((x) => label(POS, x)).join(' · ');
+  const gloss = rec.s && rec.s[0] && rec.s[0].g ? rec.s[0].g[0] : '';
+  const href = entryHash(entryAddress(h.pack, rec));
+  return `<a class="fnrow" href="${esc(href)}"><span class="seg" lang="ja">${esc(h.segment)}</span>` +
+    `${reading && reading !== h.segment ? ` <span class="kana" lang="ja">${esc(reading)}</span>` : ''}` +
+    `${pos ? ` <span class="pos">${esc(pos)}</span>` : ''}${gloss ? ` <span class="info">${esc(gloss)}</span>` : ''}</a>`;
 }
