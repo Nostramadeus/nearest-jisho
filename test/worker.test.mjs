@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeFixture } from './helpers/fixture.mjs';
 
-test('worker: progress, loaded packs, fast then full result, kanji', async () => {
+test('worker: progress, loaded packs, fast then full result, entry', async () => {
   const fx = makeFixture();
   const msgs = [];
   const waiters = [];
@@ -39,9 +39,12 @@ test('worker: progress, loaded packs, fast then full result, kanji', async () =>
     await until((m) => m.type === 'result' && m.seq === 3 && m.phase === 'full');
     assert.ok(!msgs.some((m) => m.type === 'result' && m.seq === 2 && m.phase === 'full'));
 
-    globalThis.onmessage({ data: { type: 'kanji', id: 7, literal: '辞' } });
-    const k = await until((m) => m.type === 'kanji' && m.id === 7);
-    assert.equal(k.data.s, 13);
+    globalThis.onmessage({ data: { type: 'entry', id: 7, pack: 'words', w: '辞書', r: 'じしょ', ranking: 'fiction' } });
+    const en = await until((m) => m.type === 'entry' && m.id === 7);
+    assert.deepEqual(en.data.rec.k, ['辞書']);
+    assert.equal(en.data.kanji[0].data.s, 13);
+    globalThis.onmessage({ data: { type: 'entry', id: 8, pack: 'words', w: '無い語', r: 'ないご', ranking: 'fiction' } });
+    assert.equal((await until((m) => m.type === 'entry' && m.id === 8)).data, null);
   } finally {
     globalThis.fetch = realFetch;
     delete globalThis.onmessage;

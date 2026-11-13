@@ -6,7 +6,7 @@ Results appear while you type. Search in English, kana, kanji or romaji.
 - Typos are fine: `jihso` finds 辞書 (jisho) and says "letters swapped".
 - Long vowels and double letters are optional: `gakko` finds 学校 (gakkou), `shojo` finds 少女 (shoujo).
 - Verb and adjective forms lead to the dictionary form: `食べさせられた` finds 食べる.
-- Slang from JMdict and Wiktionary is shown with labels; names come from JMnedict; tap a kanji for its details.
+- Slang from JMdict and Wiktionary is shown with labels; names come from JMnedict; open a result for its full entry with every example and the kanji details.
 - Everything runs on the device. After the first visit the app works offline.
 
 ## Download

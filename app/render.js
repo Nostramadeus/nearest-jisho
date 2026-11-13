@@ -1,18 +1,16 @@
 // Pure HTML rendering for result cards (no DOM access), shared by main.js and the tests.
 import { POS, MISC, FIELD, DIALECT, NAME_TYPE, SLANG_CODES, label } from './labels.js';
+import { entryAddress, entryHash } from './search/entry.js';
 
 export function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-const KANJI_CHAR = /[㐀-䶿一-鿿豈-﫿々\u{20000}-\u{3134f}]/u;
 
-/** Text with the first `len` characters (or all when len = -1) wrapped in <mark>; kanji become buttons if asked. */
-export function markText(text, len, kanjiButtons) {
+/** Text with the first `len` characters (or all when len = -1) wrapped in <mark>. */
+export function markText(text, len) {
   const chars = Array.from(text || '');
   const n = len === -1 ? chars.length : len == null ? 0 : Math.min(len, chars.length);
-  const piece = (cs) => cs.map((c) => (kanjiButtons && KANJI_CHAR.test(c)
-    ? `<button type="button" class="kj" data-kanji="${esc(c)}" aria-label="Kanji ${esc(c)}">${esc(c)}</button>` : esc(c))).join('');
-  return (n ? `<mark>${piece(chars.slice(0, n))}</mark>` : '') + piece(chars.slice(n));
+  return (n ? `<mark>${esc(chars.slice(0, n).join(''))}</mark>` : '') + esc(chars.slice(n).join(''));
 }
 
 /** Gloss text with each matched English token marked (whole word, or word prefix for the last token). */
@@ -51,7 +49,8 @@ export function headParts(rec, hl) {
   return { head, reading, headMark, readMark };
 }
 
-export function sensesHtml(rec, hit, isWikt) {
+/** Numbered senses. opts.allExamples: every stored example under its sense (entry page); else only the first one. */
+export function sensesHtml(rec, hit, isWikt, opts = {}) {
   const tokens = hit.hl && hit.hl.space === 'e' ? hit.hl.tokens : null;
   const ja = isWikt && rec.src === 'wj';
   let prevPos = '';
@@ -70,7 +69,8 @@ export function sensesHtml(rec, hit, isWikt) {
     const extraHtml = extra.length ? ` <span class="info">(${esc(extra.join(', '))})</span>` : '';
     const info = s.i ? ` <span class="info">${esc(s.i)}</span>` : '';
     let ex = '';
-    if (i === 0 && s.x && s.x.length) ex = exampleHtml(s.x[0]);
+    if (opts.allExamples) ex = (s.x || []).map(exampleHtml).join('');
+    else if (i === 0 && s.x && s.x.length) ex = exampleHtml(s.x[0]);
     return `<li>${posLine}<span${ja ? ' lang="ja"' : ''}>${gl}</span>${tags}${extraHtml}${info}${ex}</li>`;
   });
   return `<ol>${items.join('')}</ol>`;
@@ -110,30 +110,76 @@ export function cardHtml(hit, gi, ri) {
     ? `<div class="forms">Other forms: <span lang="ja">${esc([...otherK, ...otherR].join('、'))}</span></div>` : '';
   const link = isWikt && rec.u
     ? `<div class="link"><a href="${esc(rec.u)}" target="_blank" rel="noopener">Open in Wiktionary</a></div>` : '';
-  return `<article class="card" data-g="${gi}" data-r="${ri}">` +
-    `<div class="word">${reading ? `<div class="kana" lang="ja">${markText(reading, readMark, false)}</div>` : ''}` +
-    `<div class="kanji" lang="ja">${markText(head, headMark, true)}</div>` +
+  const href = entryHash(entryAddress(hit.pack, rec));
+  return `<article class="card" data-g="${gi}" data-r="${ri}" data-entry="${esc(href)}">` +
+    `<div class="word">${reading ? `<div class="kana" lang="ja">${markText(reading, readMark)}</div>` : ''}` +
+    `<div class="kanji" lang="ja"><a class="hw" href="${esc(href)}">${markText(head, headMark)}</a></div>` +
     `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</div>` +
     `<div class="body">${notes}${body}${moreEx}${forms}${link}</div></article>`;
 }
 
 
-export function kanjiHtml(literal, k) {
-  const close = '<button type="button" class="close" data-act="close-kanji">Close</button>';
-  if (!k) return `${close}<div class="big" lang="ja">${esc(literal)}</div><p class="dim">No kanji information available.</p>`;
-  const row = (t, v) => (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length) ? '' : `<dt>${t}</dt><dd>${v}</dd>`);
-  return `${close}<div class="big" lang="ja">${esc(literal)}</div><dl>` +
-    row('Meanings', esc((k.m || []).join(', '))) +
-    row('On readings', k.on && k.on.length ? `<span lang="ja">${esc(k.on.join('、'))}</span>` : '') +
-    row('Kun readings', k.kun && k.kun.length ? `<span lang="ja">${esc(k.kun.join('、'))}</span>` : '') +
-    row('Name readings', k.n && k.n.length ? `<span lang="ja">${esc(k.n.join('、'))}</span>` : '') +
+/** One "Kanji in this word" block (SPEC 10.2 section 4); lines without data are omitted. */
+export function kanjiBlockHtml(literal, k) {
+  const row = (t, v) => (v === '' || v == null ? '' : `<dt>${t}</dt><dd>${v}</dd>`);
+  const ja = (list) => (list && list.length ? `<span lang="ja">${esc(list.join('、'))}</span>` : '');
+  k = k || {};
+  return `<div class="kblock"><div class="big" lang="ja">${esc(literal)}</div><dl>` +
+    row('Meanings', k.m && k.m.length ? esc(k.m.join(', ')) : '') +
+    row('On readings', ja(k.on)) +
+    row('Kun readings', ja(k.kun)) +
+    row('Name readings', ja(k.n)) +
     row('Strokes', k.s != null ? esc(k.s) : '') +
-    row('School grade', k.g != null ? esc(k.g <= 6 ? k.g : k.g <= 8 ? 'secondary school' : 'name use') : '') +
+    row('School grade', k.g != null ? esc(k.g <= 6 ? k.g : k.g <= 8 ? 'secondary school' : 'used in names') : '') +
     row('JLPT level (old four-level test)', k.j != null ? esc(k.j) : '') +
-    row('Newspaper frequency rank', k.f != null ? esc(k.f) : '') +
-    '</dl>';
+    '</dl></div>';
 }
 
+const ext = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener">${text}</a>`;
+
+/** The entry page (SPEC 10.2). d = entryData() from search/entry.js. */
+export function entryHtml(d) {
+  const { rec, pack, head } = d;
+  const isWikt = pack === 'wikt', isName = pack === 'names';
+  const tags = [];
+  if (rec.c) tags.push('<span class="tag">common</span>');
+  if (rec.j) tags.push(`<span class="tag g">N${esc(rec.j)}</span>`);
+  if (isWikt) tags.push(rec.src === 'wj' ? '<span class="tag g">Japanese definition</span>' : '<span class="tag g">Wiktionary</span>');
+  if (!isWikt) {
+    const seen = new Set();
+    for (const s of rec.s || []) for (const m of s.m || []) {
+      if (SLANG_CODES.has(m) && !seen.has(m)) { seen.add(m); tags.push(`<span class="tag s">${esc(label(MISC, m))}</span>`); }
+    }
+  }
+  const reading = d.reading && d.reading !== head ? d.reading : '';
+  let html = '<article class="entry">' +
+    `<header class="entry-head">${reading ? `<div class="kana" lang="ja">${esc(reading)}</div>` : ''}` +
+    `${d.romaji ? `<div class="romaji">${esc(d.romaji)}</div>` : ''}` +
+    `<h2 class="entry-word" lang="ja">${esc(head)}</h2>` +
+    `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</header>`;
+  const sec = (title, body) => `<section class="entry-sec"><h3>${title}</h3>${body}</section>`;
+  if (!isWikt) {
+    const others = [...(rec.k || []), ...(rec.r || [])].filter((f) => f !== head && f !== reading);
+    if (others.length) html += sec('Other forms', `<p lang="ja">${esc(others.join('、'))}</p>`);
+  }
+  if (isName) {
+    if (rec.t && rec.t.length) html += sec('Name type', `<p>${esc(rec.t.map((t) => label(NAME_TYPE, t)).join(', '))}</p>`);
+    html += sec('Translations', `<ol>${(rec.g || []).map((g) => `<li>${esc(g)}</li>`).join('')}</ol>`);
+  } else {
+    html += sec('Meanings', sensesHtml(rec, {}, isWikt, { allExamples: true }));
+  }
+  if (d.kanji.length) html += sec('Kanji in this word', d.kanji.map((b) => kanjiBlockHtml(b.literal, b.data)).join(''));
+  if (d.startsWith.length) {
+    html += sec(`Words that start with <span lang="ja">${esc(head)}</span>`, `<ul class="starts">${d.startsWith.map((x) =>
+      `<li><a href="${esc(entryHash(x))}"><span lang="ja">${esc(x.head)}</span>${x.reading ? ` <span class="kana" lang="ja">${esc(x.reading)}</span>` : ''}</a>` +
+      `${x.gloss ? ` <span class="info">${esc(x.gloss)}</span>` : ''}</li>`).join('')}</ul>`);
+  }
+  const links = [ext(`https://ja.wikipedia.org/w/index.php?search=${encodeURIComponent(head)}`, `Search Wikipedia for "${esc(head)}"`)];
+  if (isWikt && rec.u) links.push(ext(rec.u, rec.src === 'wj' ? 'Open in Japanese Wiktionary' : 'Open in Wiktionary'));
+  if (pack === 'words') links.push(ext(`https://jisho.org/search/${encodeURIComponent(head)}`, 'Look up on Jisho.org'));
+  html += `<section class="entry-sec links"><h3>Links</h3><ul>${links.map((l) => `<li>${l}</li>`).join('')}</ul></section>`;
+  return html + '</article>';
+}
 
 /** All groups of one search result as HTML (SPEC 4.4 "Did you mean" line before tier-3 near results). */
 export function groupsHtml(groups) {

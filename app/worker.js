@@ -1,6 +1,7 @@
 // Web Worker shell (SPEC 6): picks the data set, loads packs, runs the engine, posts results.
 import { PackStore, PACKS, packFiles, packFilesBinary, KANJI_FILE, VERSION_FILE } from './search/packs.js';
 import { search } from './search/engine.js';
+import { findEntry, entryData } from './search/entry.js';
 
 const DATA_BASE = './data/';
 const REMOTE_BASE = 'https://nostramadeus.github.io/nearest-jisho/data/';
@@ -15,6 +16,8 @@ let store = null;
 let current = null; // { kind: 'bundled' | 'cache', cacheName, version }
 let latestSeq = 0;
 const loaded = {};
+const pendingEntries = []; // entry requests that wait for their pack (direct visit to an entry address)
+let started = false;      // all packs attempted
 
 // ---------- reading files ----------
 
@@ -107,12 +110,17 @@ async function start() {
       await store.loadPack(p, (f) => post({ type: 'progress', pack: p, pct: Math.floor(f * 100) }));
       store.warm(p);
       loaded[p] = true;
+      // kanji data right after the words pack, so entry pages opened early have their kanji blocks
+      if (p === 'words' && !store.kanjiData) { try { await store.loadKanji(); } catch { /* blocks show only the character */ } }
       post({ type: 'loaded', pack: p });
+      flushEntries();
     } catch (e) {
       post({ type: 'packError', pack: p, message: String(e && e.message || e) });
     }
   }
-  try { await store.loadKanji(); } catch { /* kanji panel shows "not available" */ }
+  if (!store.kanjiData) { try { await store.loadKanji(); } catch { /* blocks show only the character */ } }
+  started = true;
+  flushEntries();
   post({ type: 'done' });
   checkUpdate();
 }
@@ -171,6 +179,19 @@ function runSearch(m, phase) {
   post({ type: 'result', seq: m.seq, phase, query: m.query, result: res, loaded: { ...loaded } });
 }
 
+// Entry page (SPEC 10.2): answered once its pack and the kanji data are in (or every pack was tried).
+function answerEntry(m) {
+  const id = findEntry(store, m.pack, m.w, m.r);
+  const data = id < 0 ? null : entryData(store, m.pack, id, { ranking: m.ranking });
+  post({ type: 'entry', id: m.id, pack: m.pack, w: m.w, r: m.r, data });
+}
+function flushEntries() {
+  for (let i = pendingEntries.length - 1; i >= 0; i--) {
+    const m = pendingEntries[i];
+    if ((loaded[m.pack] && store.kanjiData) || started) { pendingEntries.splice(i, 1); answerEntry(m); }
+  }
+}
+
 self.onmessage = (ev) => {
   const m = ev.data;
   if (m.type === 'search') {
@@ -179,8 +200,9 @@ self.onmessage = (ev) => {
     if (m.phase !== 'full') runSearch(m, 'fast');
     // a newer query cancels older work: the full phase runs only if nothing newer arrived meanwhile
     setTimeout(() => { if (m.seq === latestSeq) runSearch(m, 'full'); }, 0);
-  } else if (m.type === 'kanji') {
-    post({ type: 'kanji', id: m.id, literal: m.literal, data: store ? store.kanji(m.literal) : null });
+  } else if (m.type === 'entry') {
+    if (store && ((loaded[m.pack] && store.kanjiData) || started)) answerEntry(m);
+    else pendingEntries.push(m);
   }
 };
 

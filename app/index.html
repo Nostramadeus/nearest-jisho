@@ -20,8 +20,13 @@
 <div class="page">
   <h1 class="visually-hidden">Nearest Jisho - Japanese Dictionary</h1>
   <div class="search" role="search">
-    <input id="q" type="search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search"
-      placeholder="Search in English, Japanese or romaji" aria-label="Search the dictionary" autofocus>
+    <div class="box">
+      <input id="q" type="text" inputmode="search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search"
+        placeholder="Search in English, Japanese or romaji" aria-label="Search the dictionary" autofocus>
+      <button id="clear" class="clear" type="button" aria-label="Clear search">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
     <button id="gear" class="gear" type="button" aria-label="Settings" aria-expanded="false" aria-controls="settings">
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
     </button>
@@ -41,9 +46,14 @@
     </fieldset>
     <p class="dim">Dictionary data: <span id="built">loading</span></p>
   </section>
-  <div id="dym" class="dym" hidden></div>
-  <main id="results" aria-live="polite"></main>
-  <section id="recent" class="recent" hidden aria-label="Recent searches"></section>
+  <main id="view">
+    <div id="searchview">
+      <div id="dym" class="dym" hidden></div>
+      <div id="results" aria-live="polite"></div>
+      <section id="recent" class="recent" hidden aria-label="Recent searches"></section>
+    </div>
+    <div id="entry" hidden></div>
+  </main>
   <footer class="foot">
     <div id="wiki" class="wiki" hidden></div>
     <div>Data: <a href="https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project" target="_blank" rel="noopener">JMdict</a>,

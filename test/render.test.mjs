@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadFixtureStore } from './helpers/fixture.mjs';
 import { search } from '../app/search/engine.js';
-import { cardHtml, groupsHtml, kanjiHtml, markText, markTokens, esc } from '../app/render.js';
+import { cardHtml, groupsHtml, kanjiBlockHtml, markText, markTokens, esc } from '../app/render.js';
 
 const { store, cleanup } = await loadFixtureStore();
 test.after(cleanup);
@@ -15,8 +15,8 @@ function resolved(q, o = {}) {
 
 test('escaping and marks', () => {
   assert.equal(esc('<a href="x">&\''), '&lt;a href=&quot;x&quot;&gt;&amp;&#39;');
-  assert.equal(markText('じしょけい', 2, false), '<mark>じし</mark>ょけい');
-  assert.equal(markText('辞書', -1, true).match(/data-kanji/g).length, 2);
+  assert.equal(markText('じしょけい', 2), '<mark>じし</mark>ょけい');
+  assert.equal(markText('<辞>', -1), '<mark>&lt;辞&gt;</mark>');
   assert.equal(markTokens('dictionary form (of a verb)', ['dictionary']), '<mark>dictionary</mark> form (of a verb)');
   assert.equal(markTokens('dictionaries', ['dictio']), '<mark>dictio</mark>naries'); // last token as prefix
   assert.equal(markTokens('condition', ['on']), 'condition'); // whole words only
@@ -42,7 +42,10 @@ test('near results sit under a Did you mean line; English tokens are marked', ()
 
 test('kanji match marks the headword; deinflection note shown', () => {
   const html = groupsHtml(resolved('辞書').groups);
-  assert.match(html, /<div class="kanji" lang="ja"><mark><button type="button" class="kj" data-kanji="辞"/);
+  // the headword is a real link to the entry page; no inline kanji buttons any more (SPEC 10.2)
+  assert.match(html, /<div class="kanji" lang="ja"><a class="hw" href="#w=%E8%BE%9E%E6%9B%B8&amp;r=%E3%81%98%E3%81%97%E3%82%87&amp;p=words"><mark>辞書<\/mark><\/a><\/div>/);
+  assert.ok(!html.includes('data-kanji'));
+  assert.match(html, /<article class="card" data-g="0" data-r="0" data-entry="#w=/);
   const d = groupsHtml(resolved('たべた').groups);
   assert.match(d, /<div class="note">たべた is the past form of 食べる<\/div>/);
 });
@@ -62,10 +65,14 @@ test('show more button when total exceeds shown', () => {
   assert.match(html, /<button type="button" class="more" data-more="words">Show more<\/button>/);
 });
 
-test('kanji panel', () => {
-  const html = kanjiHtml('辞', { m: ['resign', 'word'], on: ['ジ'], kun: ['や.める'], n: ['こと'], s: 13, g: 4, j: 2, f: 633 });
-  for (const s of ['Meanings', 'On readings', 'Kun readings', 'Name readings', 'Strokes', 'School grade']) assert.ok(html.includes(s), s);
-  assert.match(kanjiHtml('猫', null), /No kanji information available/);
+test('kanji block: lines in order, lines without data omitted', () => {
+  const html = kanjiBlockHtml('辞', { m: ['resign', 'word'], on: ['ジ'], kun: ['や.める'], n: ['こと'], s: 13, g: 4, j: 2, f: 633 });
+  const order = ['Meanings', 'On readings', 'Kun readings', 'Name readings', 'Strokes', 'School grade', 'JLPT level'];
+  const pos = order.map((t) => html.indexOf(t));
+  assert.ok(pos.every((x, i) => x > 0 && (i === 0 || x > pos[i - 1])), 'order');
+  const bare = kanjiBlockHtml('猫', null);
+  assert.match(bare, /<div class="big" lang="ja">猫<\/div>/);
+  assert.ok(!bare.includes('<dt>'));
 });
 
 test('card has no raw HTML from data', () => {

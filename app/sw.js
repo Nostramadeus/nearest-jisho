@@ -4,7 +4,7 @@ const SHELL_CACHE = `nj-shell-${SHELL_VERSION}`;
 const DATA_CACHE = 'nj-bundled-data';
 const SHELL = [
   './', './index.html', './about.html', './style.css', './main.js', './render.js', './labels.js', './worker.js',
-  './search/romaji.js', './search/fold.js', './search/cost.js', './search/deinflect.js', './search/engine.js', './search/packs.js',
+  './search/romaji.js', './search/fold.js', './search/cost.js', './search/deinflect.js', './search/engine.js', './search/entry.js', './search/packs.js',
   './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png',
 ];
 

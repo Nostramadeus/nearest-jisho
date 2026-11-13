@@ -651,3 +651,19 @@ function pub(h) {
 export function didYouMeanText(d) {
   return `No exact match for "${d.typed}". Nearest: ${d.key} (${d.reason})`;
 }
+
+/**
+ * Records of `pack` whose written form (space k) starts with `prefix`, excluding the exact key (SPEC 10.2 section 5):
+ * the tier-2 prefix rule (max 200 candidates in rank order), ordered like tier 2 (common first, rank, shorter key).
+ * Returns [{ id, key }].
+ */
+export function prefixRecords(store, pack, prefix, { ranking = 'fiction', max = 20, exclude = -1 } = {}) {
+  const ks = store.keySpace(pack, 'k');
+  if (!ks || !prefix) return [];
+  const ctx = { ranking: ranking === 'news' ? 'news' : 'fiction', kind: 'kanji', recentAny: false };
+  const hits = new Map();
+  if (exclude >= 0) hits.set(exclude, { tier: -1 }); // keeps the record itself out of the candidates
+  prefixTier2(store, ctx, pack, ks, prefix, ks.find(prefix), hits, 'k');
+  hits.delete(exclude);
+  return Array.from(hits.values()).sort(makeComparator(store, ctx)).slice(0, max).map((h) => ({ id: h.id, key: h.key }));
+}

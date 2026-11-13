@@ -38,11 +38,18 @@ button { font: inherit; color: inherit; }
   position: sticky; top: 0; z-index: 2; display: flex; gap: 8px; align-items: center;
   padding: 10px; background: var(--panel); border-bottom: 1px solid var(--line);
 }
+.search .box { position: relative; flex: 1; min-width: 0; display: flex; }
 .search input {
-  flex: 1; min-width: 0; border: 2px solid var(--acc); border-radius: 8px; padding: 8px 12px;
+  flex: 1; width: 100%; min-width: 0; border: 2px solid var(--acc); border-radius: 8px; padding: 8px 46px 8px 12px;
   font-size: 17px; background: var(--panel); color: var(--ink); outline: none;
 }
-.search input::-webkit-search-cancel-button { cursor: pointer; }
+.search input::-webkit-search-cancel-button { display: none; }
+/* SPEC 10.1: own clear button, always visible, 44x44 hit area, 22 px icon, inside the right end of the box */
+.clear {
+  position: absolute; right: 1px; top: 50%; transform: translateY(-50%); width: 44px; height: 44px;
+  display: grid; place-items: center; border: 0; background: transparent; color: var(--dim); cursor: pointer; padding: 0;
+}
+.clear:hover, .clear:focus-visible { color: var(--acc); }
 .gear {
   flex: 0 0 auto; width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 8px;
   background: transparent; color: var(--dim); cursor: pointer; display: grid; place-items: center;
@@ -74,8 +81,9 @@ main { flex: 1 0 auto; }
 .card .body { flex: 1 1 300px; min-width: 0; }
 .kana { font-size: 12px; color: var(--dim); }
 .kanji { font-size: 32px; line-height: 1.15; overflow-wrap: anywhere; }
-.kanji .kj { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; border-bottom: 1px dotted transparent; }
-.kanji .kj:hover, .kanji .kj:focus-visible { border-bottom-color: var(--acc); }
+.card { cursor: pointer; }
+.card .hw { color: inherit; text-decoration: none; }
+.card .hw:hover, .card .hw:focus-visible { text-decoration: underline; text-decoration-color: var(--acc); }
 mark { background: none; color: var(--acc); font-weight: 700; }
 .tags { margin-top: 4px; }
 .tag { display: inline-block; background: var(--tag); color: var(--tagink); border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 600; margin: 0 4px 2px 0; }
@@ -92,13 +100,26 @@ mark { background: none; color: var(--acc); font-weight: 700; }
 .toggle { background: none; border: 0; padding: 2px 0; color: var(--acc); cursor: pointer; font-size: 13px; }
 .forms { font-size: 13px; color: var(--dim); margin-top: 6px; }
 .link { font-size: 13px; margin-top: 6px; }
-.kpanel { flex-basis: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--bg); }
-.kpanel .big { font-size: 40px; line-height: 1; float: left; margin-right: 12px; }
-.kpanel dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; font-size: 14px; }
-.kpanel dt { color: var(--dim); }
-.kpanel dd { margin: 0; }
-.kpanel .close { float: right; background: none; border: 0; color: var(--acc); cursor: pointer; }
-
+/* Entry page (SPEC 10.2) */
+.entry { padding: 16px; }
+.entry-head .kana { font-size: 15px; }
+.entry .romaji { font-size: 13px; color: var(--dim); }
+.entry-word { font-size: 56px; line-height: 1.1; margin: 4px 0 6px; font-weight: 400; overflow-wrap: anywhere; }
+.entry-sec { margin-top: 18px; }
+.entry-sec h3 { font-size: 13px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; margin: 0 0 6px; }
+.entry-sec h3 [lang="ja"] { text-transform: none; }
+.entry-sec p { margin: 0; }
+.entry ol { margin: 0; padding-left: 22px; }
+.entry li { margin-bottom: 8px; }
+.kblock { display: flex; gap: 14px; padding: 10px 0; border-top: 1px solid var(--line); }
+.kblock .big { font-size: 48px; line-height: 1; flex: 0 0 auto; }
+.kblock dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; font-size: 14px; }
+.kblock dt { color: var(--dim); }
+.kblock dd { margin: 0; }
+.starts { list-style: none; margin: 0; padding: 0; }
+.starts li { padding: 4px 0; border-bottom: 1px solid var(--line); margin: 0; }
+.links ul { list-style: none; margin: 0; padding: 0; }
+.links li { margin: 0 0 4px; }
 .empty { padding: 16px; color: var(--dim); }
 .recent { padding: 6px 0; }
 .recent h2 { margin: 0; padding: 6px 16px; font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; display: flex; justify-content: space-between; align-items: center; }

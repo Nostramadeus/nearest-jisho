@@ -281,3 +281,43 @@ and by a monthly schedule that also commits a `DATA-VERSION` bump so the schedul
   (CC BY-SA 4.0, links to pages), jiten.moe (CC BY-SA 4.0), Tatoeba (CC BY 2.0 FR), JLPT lists
   (stephenmk/yomitan-jlpt-vocab, CC BY-SA 4.0; "JLPT data is sourced from Jonathan Waller's JLPT Resources page
   under the terms of the Creative Commons BY license.").
+
+## 10. Clear button and entry page (added 2026-11-13 after the first real use)
+
+### 10.1 Clear button
+- The search row has its own `<button type="button" aria-label="Clear search">` with an X icon. It is ALWAYS visible
+  (also when the box is empty and when the box is not focused). Hit area 44x44 CSS px, icon 22 px, placed inside the
+  right end of the search box. The browser's native clear control is hidden (`input[type=search]` -> use `type="text"`
+  with `inputmode="search"`, or hide `::-webkit-search-cancel-button`).
+- Click: empties the box, puts the caret in the box (focus), clears `#q`, shows the Recent list. If an entry page is
+  open it returns to the (empty) search view. Pressing Escape in the box does the same.
+
+### 10.2 Entry page
+- Clicking a result card anywhere except on a link, a button or the "more examples" toggle opens the entry page for
+  that record. The card shows `cursor: pointer`; the headword is a real `<a>` so keyboard and middle-click work.
+  The inline kanji panel on result cards is REMOVED (kanji details now live on the entry page).
+- Address: `#w=<first written form or first kana form>&r=<first kana form>&p=<pack>` (URL-encoded). It is resolved by
+  an exact lookup in key space `k` of that pack (space `r` via canonical romaji when the record has no kanji form),
+  then the record whose kana forms include `r`; if several match, the lowest record id. No record ids in addresses
+  (ids change on every data build). Opening an entry uses `history.pushState`; the browser Back button (and the
+  Android back gesture, and Alt+Left) returns to the result list with the same query and the same scroll position.
+  A direct visit to an entry address works after the pack has loaded (show the loading line until then).
+- The search box stays on top of the entry page. Typing in it leaves the entry page and shows results as usual.
+- Entry page content, top to bottom, all visible without further clicks:
+  1. Reading (kana) and under it the romaji from `kanaToRomaji`; headword very large; tags (common, JLPT, labels).
+  2. "Other forms": every other kanji and kana form.
+  3. "Meanings": every sense, numbered, with part of speech, field / dialect / misc labels in full words, the sense
+     note, and EVERY stored example pair of that sense under it (Japanese line, English line).
+  4. "Kanji in this word": one block per distinct kanji of the headword, in order: the character large, meanings,
+     On readings, Kun readings, Name readings, strokes, school grade, JLPT level (omit a line that has no data).
+  5. "Words that start with <headword>": up to 20 records from the words pack whose written form starts with the
+     headword (tier-2 prefix rule on space `k`, the record itself excluded), ordered by the usual rank; each is a
+     link to its own entry page and shows reading + first gloss. Omitted when there are none. For names and for
+     records without a kanji form this section is omitted.
+  6. Links: `Search Wikipedia for "<headword>"`; for Wiktionary records the page link; for words records
+     `Look up on Jisho.org` -> `https://jisho.org/search/<headword>`. All open in a new tab / the system browser.
+  7. The footer credits as on every screen.
+- Names records: sections 1, 2, a "Name type" line with the type labels in full words, the translations, 4, 6.
+- Wiktionary records: sections 1, 3 (glosses and labels), 4, 6, with the "Wiktionary" or "Japanese definition" tag.
+- Worker API: add messages `entry { pack, w, r }` -> the full record + its kanji blocks + the section-5 list, and keep
+  search untouched. No ranking rule changes.

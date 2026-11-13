@@ -1,10 +1,12 @@
-// UI (SPEC 5). Talks to worker.js; renders Look A cards.
-import { esc, cardHtml, kanjiHtml, groupsHtml } from './render.js';
+// UI (SPEC 5 and 10). Talks to worker.js; renders Look A cards and the entry page.
+import { esc, groupsHtml, entryHtml } from './render.js';
 import { didYouMeanText } from './search/engine.js';
+import { parseEntryHash, entryHash } from './search/entry.js';
 
 const $ = (id) => document.getElementById(id);
 const qEl = $('q'), resultsEl = $('results'), dymEl = $('dym'), progressEl = $('progress');
 const recentEl = $('recent'), wikiEl = $('wiki'), settingsEl = $('settings'), gearEl = $('gear');
+const searchViewEl = $('searchview'), entryEl = $('entry'), clearEl = $('clear');
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -20,6 +22,9 @@ const S = {
   groupLimits: {},
   loaded: {},
   lastResult: null,
+  view: 'search',  // 'search' | 'entry'
+  entry: null,     // { w, r, p } of the open entry page
+  entryReq: 0,
 };
 try { const t = localStorage.getItem('nj-theme'); if (t === 'light' || t === 'dark') S.theme = t; } catch { /* default */ }
 if (!Array.isArray(S.recent)) S.recent = [];
@@ -58,23 +63,9 @@ worker.onmessage = (ev) => {
       $('built').textContent += ` (newer data ${m.built} downloaded, used from the next start)`;
       break;
     case 'result': onResult(m); break;
-    case 'kanji': onKanji(m); break;
+    case 'entry': onEntry(m); break;
   }
 };
-
-let kanjiReq = 0;
-const kanjiWaiters = new Map();
-function askKanji(literal) {
-  return new Promise((resolve) => {
-    const id = ++kanjiReq;
-    kanjiWaiters.set(id, resolve);
-    worker.postMessage({ type: 'kanji', id, literal });
-  });
-}
-function onKanji(m) {
-  const f = kanjiWaiters.get(m.id);
-  if (f) { kanjiWaiters.delete(m.id); f(m.data); }
-}
 
 // ---------- search flow ----------
 let debounceT = 0, pushT = 0, recentT = 0, lastPushed = null;
@@ -88,6 +79,7 @@ function runSearch(phase) {
 }
 
 function setQuery(q, { push = false, focus = false } = {}) {
+  if (S.view === 'entry') { push = true; showSearchView(); } // typing leaves the entry page; Back returns to it
   S.query = q;
   if (qEl.value !== q) qEl.value = q;
   S.groupLimits = {};
@@ -98,8 +90,10 @@ function setQuery(q, { push = false, focus = false } = {}) {
   armTimers();
 }
 
+function emptyAddress() { return location.pathname + location.search; }
+
 function syncHash(push) {
-  const hash = S.query ? `#q=${encodeURIComponent(S.query)}` : location.pathname + location.search;
+  const hash = S.query ? `#q=${encodeURIComponent(S.query)}` : emptyAddress();
   if (push) { history.pushState(null, '', hash); lastPushed = S.query; } else history.replaceState(null, '', hash);
 }
 
@@ -107,7 +101,9 @@ function armTimers() {
   clearTimeout(pushT);
   clearTimeout(recentT);
   const q = S.query;
-  pushT = setTimeout(() => { if (S.query === q && lastPushed !== q) { history.pushState(null, '', `#q=${encodeURIComponent(q)}`); lastPushed = q; } }, 1000);
+  pushT = setTimeout(() => {
+    if (S.view === 'search' && S.query === q && lastPushed !== q) { history.pushState(null, '', `#q=${encodeURIComponent(q)}`); lastPushed = q; }
+  }, 1000);
   recentT = setTimeout(() => { if (S.query === q) addRecent(q); }, 2000);
 }
 
@@ -117,16 +113,97 @@ qEl.addEventListener('input', () => {
 });
 qEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { clearTimeout(debounceT); setQuery(qEl.value); qEl.blur(); }
+  else if (e.key === 'Escape') { e.preventDefault(); clearSearch(); }
 });
 
+// ---------- clear button (SPEC 10.1) ----------
+function clearSearch() {
+  clearTimeout(debounceT);
+  clearTimeout(pushT);
+  clearTimeout(recentT);
+  const fromEntry = S.view === 'entry';
+  if (fromEntry) showSearchView();
+  S.query = '';
+  qEl.value = '';
+  if (fromEntry) history.pushState(null, '', emptyAddress()); else history.replaceState(null, '', emptyAddress());
+  lastPushed = '';
+  renderEmpty();
+  qEl.focus();
+}
+clearEl.addEventListener('click', clearSearch);
+
+// ---------- routing: #q=..., #w=..&r=..&p=.. ----------
 function readHash() {
   const m = /^#q=(.*)$/.exec(location.hash);
   let q = '';
   if (m) { try { q = decodeURIComponent(m[1]); } catch { q = m[1]; } }
   return q;
 }
-window.addEventListener('popstate', () => { const q = readHash(); if (q !== S.query) { lastPushed = q; setQuery(q); } });
-window.addEventListener('hashchange', () => { const q = readHash(); if (q !== S.query) setQuery(q); });
+
+function route(ev) {
+  const e = parseEntryHash(location.hash);
+  if (e) {
+    if (S.view !== 'entry' || !S.entry || entryHash(S.entry) !== entryHash(e)) showEntry(e);
+    return;
+  }
+  const wasEntry = S.view === 'entry';
+  const q = readHash();
+  if (wasEntry) showSearchView();
+  if (q !== S.query) { lastPushed = q; setQuery(q); return; }
+  if (wasEntry) {
+    if (!q.trim()) renderEmpty();
+    const y = ev && ev.state && typeof ev.state.scroll === 'number' ? ev.state.scroll : 0;
+    window.scrollTo(0, y); // same query, same list, same scroll position
+  }
+}
+window.addEventListener('popstate', route);
+window.addEventListener('hashchange', route);
+
+// ---------- entry page (SPEC 10.2) ----------
+function openEntry(addr) {
+  if (!addr) return;
+  if (S.view === 'search') {
+    // remember where the list was, so Back returns to the same scroll position
+    history.replaceState({ scroll: window.scrollY }, '', location.href);
+  }
+  history.pushState({ view: 'entry' }, '', entryHash(addr));
+  showEntry(addr);
+}
+
+function showEntry(addr) {
+  S.view = 'entry';
+  S.entry = addr;
+  searchViewEl.hidden = true;
+  wikiEl.hidden = true;
+  entryEl.hidden = false;
+  entryEl.innerHTML = '<p class="empty">Loading the entry.</p>';
+  window.scrollTo(0, 0);
+  S.entryReq++;
+  worker.postMessage({ type: 'entry', id: S.entryReq, pack: addr.p, w: addr.w, r: addr.r, ranking: S.ranking });
+}
+
+function onEntry(m) {
+  if (m.id !== S.entryReq || S.view !== 'entry') return;
+  entryEl.innerHTML = m.data
+    ? entryHtml(m.data)
+    : `<p class="empty">This entry was not found in the current dictionary data.</p>`;
+}
+
+function showSearchView() {
+  S.view = 'search';
+  S.entry = null;
+  entryEl.hidden = true;
+  entryEl.innerHTML = '';
+  searchViewEl.hidden = false;
+  renderWiki();
+}
+
+entryEl.addEventListener('click', (e) => {
+  const a = e.target.closest('a[href^="#w="]');
+  if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
+  e.preventDefault();
+  openEntry(parseEntryHash(a.getAttribute('href')));
+});
 
 // ---------- recent ----------
 function addRecent(q) {
@@ -175,6 +252,7 @@ for (const r of document.querySelectorAll('input[name="theme"]')) {
 }
 applyTheme();
 
+// ---------- results ----------
 function onResult(m) {
   if (m.seq !== S.seq || m.query !== S.query) return; // an older query
   if (!S.query.trim()) return;
@@ -205,7 +283,7 @@ function onResult(m) {
 
 function renderWiki() {
   const q = S.query.trim();
-  if (!q) { wikiEl.hidden = true; return; }
+  if (!q || S.view !== 'search') { wikiEl.hidden = true; return; } // the entry page has its own Wikipedia link
   wikiEl.innerHTML = `<a href="https://ja.wikipedia.org/w/index.php?search=${encodeURIComponent(q)}" target="_blank" rel="noopener">Search Wikipedia for "${esc(q)}"</a>`;
   wikiEl.hidden = false;
 }
@@ -223,7 +301,7 @@ dymEl.addEventListener('click', (e) => {
   if (b) setQuery(b.dataset.dym, { push: true, focus: true });
 });
 
-resultsEl.addEventListener('click', async (e) => {
+resultsEl.addEventListener('click', (e) => {
   const more = e.target.closest('button[data-more]');
   if (more) {
     const id = more.dataset.more;
@@ -233,7 +311,8 @@ resultsEl.addEventListener('click', async (e) => {
     return;
   }
   const card = e.target.closest('.card');
-  if (card && S.query.trim()) addRecent(S.query); // a tap counts as a finished search
+  if (!card) return;
+  if (S.query.trim()) addRecent(S.query); // a tap counts as a finished search
   const tog = e.target.closest('button[data-act="examples"]');
   if (tog) {
     const box = tog.nextElementSibling;
@@ -241,27 +320,23 @@ resultsEl.addEventListener('click', async (e) => {
     tog.setAttribute('aria-expanded', String(!box.hidden));
     return;
   }
-  const close = e.target.closest('button[data-act="close-kanji"]');
-  if (close) { close.closest('.kpanel').remove(); return; }
-  const kj = e.target.closest('button[data-kanji]');
-  if (kj && card) {
-    const literal = kj.dataset.kanji;
-    const old = card.querySelector('.kpanel');
-    if (old && old.dataset.literal === literal) { old.remove(); return; }
-    if (old) old.remove();
-    const data = await askKanji(literal);
-    const panel = document.createElement('div');
-    panel.className = 'kpanel';
-    panel.dataset.literal = literal;
-    panel.innerHTML = kanjiHtml(literal, data);
-    card.appendChild(panel);
-  }
+  if (e.target.closest('button')) return;
+  const a = e.target.closest('a');
+  if (a && !a.classList.contains('hw')) return; // other links keep their own target
+  if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return; // new tab / window: browser default
+  if (!a && window.getSelection && String(window.getSelection()).length) return; // selecting text is not a tap
+  e.preventDefault();
+  openEntry(parseEntryHash(card.dataset.entry));
 });
 
 // ---------- start ----------
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
   navigator.serviceWorker.register('./sw.js').catch(() => { /* offline cache unavailable */ });
 }
-const initial = readHash();
-if (initial) { lastPushed = initial; setQuery(initial); } else renderEmpty();
+const initialEntry = parseEntryHash(location.hash);
+if (initialEntry) { renderEmpty(); showEntry(initialEntry); } // shows the loading line until the pack is in
+else {
+  const initial = readHash();
+  if (initial) { lastPushed = initial; setQuery(initial); } else renderEmpty();
+}
 qEl.focus();
