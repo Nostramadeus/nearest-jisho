@@ -75,8 +75,11 @@ button { font: inherit; color: inherit; }
 .panel label { display: block; padding: 3px 0; cursor: pointer; }
 .dim { color: var(--dim); font-size: 13px; margin: 0; }
 
-.dym { background: var(--warn); color: var(--warnink); padding: 7px 12px; font-size: 13px; border-bottom: 1px solid var(--line); }
-.dym button { background: none; border: 0; padding: 0; color: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+/* SPEC 21.2: one line that wraps; chips 36 px high at least, 8 px apart */
+.dym { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: var(--warn); color: var(--warnink);
+  padding: 7px 12px; font-size: 13px; border-bottom: 1px solid var(--line); }
+.dym .sugg { min-height: 36px; display: inline-flex; align-items: center; padding: 4px 12px; cursor: pointer;
+  border: 1px solid var(--warnink); border-radius: 18px; background: var(--panel); color: var(--ink); font: inherit; font-size: 15px; }
 
 main { flex: 1 0 auto; }
 .group h2 {

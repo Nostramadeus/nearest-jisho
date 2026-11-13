@@ -627,3 +627,46 @@ most once per 6 hours.
   `No newer app version was found.` It is page code only, so it also works with an older installed service worker.
 - Limit (unchanged from section 12): the service worker file itself is part of the installed app. An app installed
   before this section keeps its 6-hour interval until it is reinstalled, but gets the button through a code update.
+
+## 21. Suggestion chips in the yellow bar; exact matches stay first (added 2026-11-13, owner's idea)
+
+Replaces the single "Nearest: <key>" text and changes one ordering rule of section 18.
+
+### 21.1 Order: what was typed always comes first
+- LATIN queries: ALL tier-0 hits come first (common flag first, then S), also the rare ones. The rest of the top
+  block (deinflected, tier 1, spelling variants, promoted slips) follows by S, then prefix, then the remaining near
+  hits by S. (`kaisa`: the exact かいさ entries first, then 会社, 会話 ... . `naiso` has no tier-0 hit, so 内緒
+  stays first. `gakko`: がっこ is tier 0 and now comes before 学校.)
+- EXCEPTION kept from the first ranking round: a tier-1 hit (long vowel / double letter only) with the common flag
+  still goes ABOVE tier-0 hits that have no common flag (`gakko`: 学校 above がっこ). Leaving out a long vowel is a
+  spelling habit, not a typo. So the block order is: tier-0 common; tier-1 common; tier-0 not common; then the rest
+  by S.
+- KANA and KANJI queries: unchanged (tier 0 strictly first).
+- English group: unchanged.
+
+### 21.2 Chips
+- A "suggestion" is a KEY that is not what was typed: a tier-1 key, a spelling-variant key, a tier-3 key (Japanese
+  side), or a corrected English query (English side). Each suggestion carries: the key, its best record (lowest S
+  among the records it brought in), that record's headword as shown (19.2), the reason label, and S.
+- The engine returns `suggestions`: Japanese-side suggestions ordered by S (then cost, then rank), at most 5,
+  followed by English-side corrections (at most 3, in their existing order). A key whose records are all already
+  shown as tier 0 is not a suggestion. `didYouMean` stays in the result object for compatibility.
+- Chips are produced only when the near search ran (the gate of study 1.2) or a variant / tier-1 key exists; a
+  query that is itself a common word and has no tier-1 or variant key gets no bar.
+- The chip shows the key in the script the user typed: LATIN query -> the romaji key (`kaisha`); KANA query -> the
+  kana reading of the best record; English correction -> the corrected English text. After it, smaller and dim, the
+  best record's headword (`会社`). `title` = the reason label. A chip is a `<button>`; tapping it puts its text into
+  the search box and searches (one history step, so Back returns to the previous query).
+- Bar text when the typed query has at least one tier-0 or tier-1 hit in any group:
+  `Did you mean:` + chips.
+  Otherwise: `No exact match for "<typed>". Did you mean:` + chips.
+  The bar is one line that wraps; chips have a 36 px minimum height and 8 px gaps.
+- The result list under the bar is not shortened: near hits remain listed under the "Did you mean" divider with
+  their reason labels, as today. The chips are shortcuts, not a replacement.
+
+### 21.3 Ruling 2026-11-13 (owner): chips show the spelling only
+- A chip shows ONLY the key in the script the user typed (`kaisha`, or かいしゃ for kana input, or the corrected
+  English text). No headword and no kanji on the chip: one spelling can stand for many words. `title` keeps the
+  reason label. This overrides the "After it, smaller and dim, the best record's headword" sentence of 21.2.
+- KANJI queries and text input (the "Words in this text" case) get no chips and no yellow bar from this section.
+- Tapping a chip searches that spelling, so the list below shows every entry with that reading.

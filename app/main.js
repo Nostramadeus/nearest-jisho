@@ -1,10 +1,9 @@
 // UI (SPEC 5, 10, 11, 12). Talks to worker.js; renders Look A cards, the entry page and the Favorites view.
-import { esc, groupsHtml, entryHtml, favoritesHtml, updateBarHtml } from './render.js';
+import { esc, groupsHtml, entryHtml, favoritesHtml, updateBarHtml, suggestionBarHtml, scrollTargetY } from './render.js';
 import { createFavorites, favoritesText } from './favorites.js';
 import {
   WIFI_UNKNOWN_NOTE, wifiNoteShown, loadUpdateChoice, shouldShowOffer, checkResultText, UPDATE_DONE_TEXT, UPDATE_FAILED_TEXT,
 } from './datasets.js';
-import { didYouMeanText } from './search/engine.js';
 import { parseEntryHash, entryHash } from './search/entry.js';
 
 const $ = (id) => document.getElementById(id);
@@ -511,12 +510,10 @@ function onResult(m) {
   S.lastResult = m.result;
   recentEl.hidden = true;
   const r = m.result;
-  if (r.didYouMean) {
-    const d = r.didYouMean;
-    dymEl.innerHTML = esc(didYouMeanText(d)).replace(esc(`Nearest: ${d.key}`),
-      `Nearest: <button type="button" data-dym="${esc(d.query)}">${esc(d.key)}</button>`);
-    dymEl.hidden = false;
-  } else dymEl.hidden = true;
+  // SPEC 21.2: the yellow bar with suggestion chips
+  const bar = suggestionBarHtml(r);
+  dymEl.innerHTML = bar;
+  dymEl.hidden = !bar;
   if (!r.groups.length) {
     const still = !m.loaded.names || !m.loaded.wikt;
     resultsEl.innerHTML = m.phase === 'fast' ? resultsEl.innerHTML
@@ -525,6 +522,28 @@ function onResult(m) {
     resultsEl.innerHTML = groupsHtml(r.groups, renderOpts());
   }
   renderWiki();
+}
+
+/** Bottom edge (viewport px) of everything stuck to the top right now: the search row and any sticky / fixed bar. */
+function stickyBottom() {
+  let bottom = 0;
+  const gcs = window.getComputedStyle ? (el) => window.getComputedStyle(el) : () => null;
+  for (const el of [document.querySelector('.search'), $('updatebar'), dymEl, progressEl]) {
+    if (!el || el.hidden || !el.getBoundingClientRect) continue;
+    const cs = gcs(el);
+    if (!cs || (cs.position !== 'sticky' && cs.position !== 'fixed')) continue;
+    const r = el.getBoundingClientRect();
+    if (r.top <= 1) bottom = Math.max(bottom, r.bottom); // stuck at the top of the viewport
+  }
+  return bottom;
+}
+
+/** Scroll so that `el` is fully visible below the sticky area; no scroll when it already is. Returns the new y or null. */
+function revealBelowSticky(el) {
+  const r = el.getBoundingClientRect();
+  const y = scrollTargetY({ scrollY: window.scrollY, top: r.top, bottom: r.bottom, sticky: stickyBottom(), viewport: window.innerHeight });
+  if (y !== null) window.scrollTo(0, y);
+  return y;
 }
 
 function renderWiki() {
@@ -543,8 +562,8 @@ function renderEmpty() {
 }
 
 dymEl.addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-dym]');
-  if (b) setQuery(b.dataset.dym, { push: true, focus: true });
+  const b = e.target.closest('button[data-q]');
+  if (b) setQuery(b.dataset.q, { push: true, focus: true }); // one history step: Back returns to the typed query
 });
 
 resultsEl.addEventListener('click', (e) => {
@@ -563,7 +582,7 @@ resultsEl.addEventListener('click', (e) => {
   if (chip) {
     const item = resultsEl.querySelector(`#t-${chip.dataset.item}`);
     if (item) {
-      if (item.scrollIntoView) item.scrollIntoView({ block: 'start' });
+      revealBelowSticky(item); // the whole item, headword included, ends below the sticky search row
       item.classList.add('flash');
       setTimeout(() => item.classList.remove('flash'), 600);
     }

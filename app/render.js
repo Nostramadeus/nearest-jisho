@@ -330,3 +330,28 @@ export function functionRowHtml(h) {
     `${reading && reading !== h.segment ? ` <span class="kana" lang="ja">${esc(reading)}</span>` : ''}` +
     `${pos ? ` <span class="pos">${esc(pos)}</span>` : ''}${gloss ? ` <span class="info">${esc(gloss)}</span>` : ''}</a>`;
 }
+
+/**
+ * The yellow bar (SPEC 21.2, 21.3): "Did you mean:" (or "No exact match for ... Did you mean:" when no group has a
+ * tier-0 / tier-1 hit) and one chip per suggestion showing ONLY the spelling in the typed script (no headword, 21.3);
+ * title = reason label. Empty string when there are no suggestions (no bar).
+ */
+export function suggestionBarHtml(r) {
+  const list = (r && r.suggestions) || [];
+  if (!list.length) return '';
+  const lead = r.anyExact ? 'Did you mean:' : `No exact match for "${r.typed}". Did you mean:`;
+  return `<span class="dymtext">${esc(lead)}</span>` + list.map((x) => {
+    const ja = x.side === 'ja' && /[^\x00-\x7f]/.test(x.chip); // a kana chip
+    return `<button type="button" class="sugg" data-q="${esc(x.chip)}"${x.label ? ` title="${esc(x.label)}"` : ''}>` +
+      `<span${ja ? ' lang="ja"' : ''}>${esc(x.chip)}</span></button>`;
+  }).join('');
+}
+
+/**
+ * Where to scroll so that an element (viewport rectangle top..bottom) ends fully visible below the sticky area
+ * (bottom edge `sticky`), 8 px under it. null = it is already fully visible there: do not scroll.
+ */
+export function scrollTargetY({ scrollY, top, bottom, sticky, viewport }) {
+  if (top >= sticky && bottom <= viewport) return null;
+  return Math.max(0, Math.round(scrollY + top - sticky - 8));
+}

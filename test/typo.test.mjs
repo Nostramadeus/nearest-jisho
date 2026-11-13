@@ -168,8 +168,9 @@ test('spelling variants and kana variants find the intended word', () => {
   assert.equal(headOf(s[0]), '先生');
   assert.deepEqual([s[0].tier, s[0].cost, s[0].note], [1, 0.3, 'ei / ee']);
   const j = words(run('jitsuwa'));
-  assert.equal(headOf(j[0]), '実は');
-  assert.equal(j[0].note, 'は typed as wa');
+  // SPEC 21.1: the exact (rare) 実話 comes first; 実は (a variant, not a fold hit) follows by S
+  assert.deepEqual(j.map(headOf).slice(0, 2), ['実話', '実は']);
+  assert.equal(j[1].note, 'は typed as wa');
   const nk = words(run('ないしよ'));
   assert.equal(headOf(nk[0]), '内緒');
   assert.deepEqual([nk[0].cost, nk[0].note, nk[0].promoted], [0.4, '゛゜ or small kana', true]);

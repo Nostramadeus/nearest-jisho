@@ -1,23 +1,11 @@
 // Entry page data (SPEC 10.2). Pure: no DOM, no fetch. Works on a PackStore.
 import { kanaToRomaji, toHiragana } from './romaji.js';
-import { prefixRecords } from './engine.js';
+import { prefixRecords, shownHead } from './engine.js';
 
 const KANJI_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3005\u{20000}-\u{3134f}]/u;
 export const hasKanji = (s) => KANJI_RE.test(s || '');
 
-/** The record's first sense is marked "usually written in kana" (misc uk). */
-export const usuallyKana = (rec) => !!(rec && rec.s && rec.s[0] && (rec.s[0].m || []).includes('uk') && rec.r && rec.r.length);
-
-/**
- * Headword shown for a record (SPEC 19.2): its first kana form when the first sense is marked uk, else the first
- * written form. `typed`: a query or text segment that equals one of the record's forms wins whatever uk says.
- */
-export function shownHead(rec, typed) {
-  const kf = rec.k || [], rf = rec.r || [];
-  if (typed && (kf.includes(typed) || rf.includes(typed))) return typed;
-  if (usuallyKana(rec)) return rf[0];
-  return kf[0] || rf[0] || '';
-}
+export { usuallyKana, shownHead } from './engine.js'; // SPEC 19.2 headword rule (defined in engine.js)
 
 /** Address parts of a record: w = first written form or first kana form, r = first kana form. */
 export function entryAddress(pack, rec) {

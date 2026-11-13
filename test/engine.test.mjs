@@ -37,10 +37,10 @@ test('phase fast has no tier 3 and no did-you-mean', () => {
 test('tiers 0, 1, 2 and ordering for jisho', () => {
   const r = run('jisho');
   const g = group(r, 'words').results;
-  assert.deepEqual(g.map((h) => h.tier), [0, 0, 0, 1, 0, 2]); // study 1.4: 事象 (tier 1, S 7) before 自署 (tier 0 not common, S 18)
+  assert.deepEqual(g.map((h) => h.tier), [0, 0, 0, 0, 1, 2]); // SPEC 21.1: every tier-0 hit first (自署 is rare but exact)
   assert.equal(head(g[0]), '辞書'); // best rank among tier 0
-  assert.equal(head(g[3]), '事象'); // jishou folds to jisho
-  assert.equal(g[3].note, 'long vowel / double letter');
+  assert.equal(head(g[4]), '事象'); // jishou folds to jisho
+  assert.equal(g[4].note, 'long vowel / double letter');
   assert.equal(head(g[5]), '辞書形');
   assert.deepEqual(g[5].hl, { space: 'r', form: 'じしょけい', len: 3 });
   assert.equal(r.didYouMean, null);

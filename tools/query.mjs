@@ -88,7 +88,11 @@ function show(q) {
   const ms = (performance.now() - t).toFixed(1);
   if (flag('--json')) { console.log(JSON.stringify(res)); return; }
   console.log(`\n== ${q}  (${res.kind}, canon "${res.canon}", ${ms} ms, ranking ${ranking})`);
-  if (res.didYouMean) console.log(`   ${didYouMeanText(res.didYouMean)}`);
+  // SPEC 21: the yellow bar line with its chips (spelling only, 21.3); the reason label in brackets
+  if (res.suggestions && res.suggestions.length) {
+    console.log(`   ${res.anyExact ? 'Did you mean:' : `No exact match for "${res.typed}". Did you mean:`} ${res.suggestions.map((x) => `[${x.chip}]`).join(' ')}`);
+    console.log(`   chips: ${res.suggestions.map((x) => `${x.chip} (${x.label}; best ${x.head}${x.S !== null ? `, S ${x.S}` : ''})`).join(' | ')}`);
+  }
   for (const g of res.groups) {
     if (g.id === 'text') { // SPEC 17: the split line, then one row per segment: text -> headword (reading)
       console.log(`  [${g.title}] ${g.wordCount} words; ${(g.notes || []).join(' ')}`);
@@ -156,9 +160,12 @@ const splitIs = (parts) => (r) => {
   return !!g && g.segments.filter((x) => x.kind === 'word').map((x) => x.text).join(' / ') === parts.join(' / ');
 };
 const STUDY = [
-  ['naiso', (r) => posOf(r, '内緒') === 0 && posOf(r, '内装') === 1, '#1 内緒 1st, 内装 2nd'],
+  ['naiso', (r) => posOf(r, '内緒') === 0 && posOf(r, '内装') === 1 && r.suggestions?.[0]?.chip === 'naisho', '#1 内緒 1st, 内装 2nd, first chip naisho (SPEC 21.1)'],
   ['naisho', firstIs('内緒'), '#2 内緒 1st'],
-  ['kaisa', firstIs('会社'), '#3 会社 1st'],
+  ['kaisa', (r) => {
+    const rows = rowsOf(r); const t0 = rows.filter((h) => h.tier === 0 && !h.via).length;
+    return t0 > 0 && rows[0].tier === 0 && rows[0].key === 'kaisa' && isForm(rows[t0], '会社') && r.suggestions?.[0]?.chip === 'kaisha';
+  }, '#3 (SPEC 21.1) a tier-0 かいさ row first; 会社 first after the tier-0 rows; first chip kaisha'],
   ['densa', (r) => { const i = posOf(r, '電車'); return i >= 0 && i <= 1; }, '#4 電車 in the top 2'],
   ['tosokan', (r) => firstIs('図書館')(r) && rowsOf(r)[0].cost === 0.4, '#5 図書館 1st at cost 0.4'],
   ['isso', (r) => firstIs('いっそ')(r) && posOf(r, '一緒') < 0, '#6 いっそ 1st, 一緒 not offered'],
@@ -170,7 +177,7 @@ const STUDY = [
     const lastCommonT0 = rows.reduce((m, h, k) => (h.tier === 0 && !h.via && store.isCommon(h.pack, h.id) ? k : m), -1);
     return firstIs('席')(r) && i > lastCommonT0;
   }, '#10 席 1st, 世紀 below the common exact rows'],
-  ['jitsuwa', (r) => (commonRec('実話') ? posOf(r, '実は') <= 1 && posOf(r, '実は') >= 0 : posOf(r, '実は') === 0), '#11 実は 1st (2nd if 実話 is common)'],
+  ['jitsuwa', (r) => posOf(r, '実話') === 0 && posOf(r, '実は') === 1, '#11 (SPEC 21.1) 実話 (exact) 1st, 実は 2nd'],
   ['matawa', firstIs('又は'), '#12 又は 1st'],
   ['konnichiwa', firstIs('今日は'), '#13 今日は 1st'],
   ['shimbun', (r) => firstIs('新聞')(r) && rowsOf(r)[0].tier === 0 && !r.didYouMean, '#14 新聞 1st as exact, no line'],
@@ -203,20 +210,20 @@ const STUDY = [
   ['seperate', (r) => firstIs('離す', 'en')(r) && r.didYouMean?.query === 'separate', '#41 corrected, 離す 1st'],
   ['recieve', (r) => firstIs('受ける', 'en')(r) && r.didYouMean?.query === 'receive', '#42 corrected, 受ける 1st'],
   ['apples', (r) => posOf(r, '林檎', 'en') >= 0, '#43 林檎 listed'],
-  ['cats', firstIs('猫', 'en'), '#44 猫 1st (English)'],
+  ['cats', (r) => { const i = posOf(r, '猫', 'en'); return i >= 0 && i <= 1; }, '#44 猫 in the top 2 (English; ruling 2026-11-13)'],
   ['running', (r) => { const h = rowsOf(r, 'en')[0]; return !!h && h.tier === 0 && !(h.note || '').includes('plural'); }, '#45 own exact hits first'],
   ['sense', firstIs('先生'), '#47 先生 1st'],
   ['keiki', (r) => {
     const rows = rowsOf(r); const i = posOf(r, 'ケーキ'); const firstT2 = rows.findIndex((h) => h.tier === 2);
     return firstIs('景気')(r) && i > 0 && (firstT2 < 0 || i < firstT2);
   }, '#48 景気 1st, ケーキ in the top block'],
-  ['dewa', firstIs('では'), '#49 では 1st'],
-  ['rokou', firstIs('旅行'), '#50 旅行 1st'],
+  ['dewa', (r) => rowsOf(r)[0]?.tier === 0 && isForm(rowsOf(r)[0], '出羽') && posOf(r, 'では') === 1 && r.suggestions?.[0]?.chip === 'deha', '#49 (SPEC 21.1) the exact 出羽 1st, では 2nd, first chip deha'],
+  ['rokou', (r) => rowsOf(r)[0]?.tier === 0 && isForm(rowsOf(r)[0], '露光') && posOf(r, '旅行') === 1 && r.suggestions?.[0]?.chip === 'ryokou', '#50 (SPEC 21.1) the exact 露光 1st, 旅行 2nd, first chip ryokou'],
   ['hirakana', firstIs('平仮名'), '#51 平仮名 1st'],
   ['biyoin', (r) => posOf(r, '美容院') === 0 && posOf(r, '病院') > 0, '#52 美容院 1st, 病院 after'],
   ['kaki', (r) => !rowsOf(r).some((h) => h.tier === 3) && !rowsOf(r).some((h) => isForm(h, 'かぎ') || isForm(h, 'かに')), '#53 exact rows only, no kagi / kani'],
   ['きよう', (r) => firstIs('器用')(r) && (commonRec('器用') ? posOf(r, '今日') < 0 : true), '#54 器用 1st, 今日 only if the gate opens'],
-  ['きょうはいいてんきですね', splitIs(['きょう', 'は', 'いい', 'てんき', 'です', 'ね']), '19.1 きょう / は / いい / てんき / です / ね'],
+  ['きょうはいいてんきですね', splitIs(['きょう', 'は', 'いいてんき', 'です', 'ね']), '19.1 きょう / は / いいてんき / です / ね (ruling 2026-11-13)'],
   ['彼方の空まで', splitIs(['彼方', 'の', '空', 'まで']), '19.1 彼方 / の / 空 / まで'],
   ['食べさせられた子供たち', splitIs(['食べさせられた', '子供たち']), '19.1 食べさせられた / 子供たち'],
   ['国際宇宙ステーション計画', splitIs(['国際宇宙ステーション', '計画']), '19.1 国際宇宙ステーション / 計画'],
@@ -248,10 +255,7 @@ function accept() {
 
 // Rows that cannot pass under the rules as written (SPEC 18: reported, the rule is NOT changed). They are run and
 // printed as KNOWN with the diagnosis, and not counted. Remove a row from here when a ruling changes the outcome.
-const KNOWN = {
-  cats: 'キャッツ gloss "cats (esp. the musical: Cats)" is class A for the typed token; 猫 comes through the stem as class B (study 2.12)',
-  'きょうはいいてんきですね': '良い天気 (いいてんき, ff 6327) is one JMdict word: 10 + P(6327) = 15 < いい 10 + てんき 13 = 23 (SPEC 19.1)',
-};
+const KNOWN = {}; // empty since the coordinator ruling of 2026-11-13: both former rows now expect the actual outcome
 
 function bench() {
   for (const q of ['jisho', 'jihso', 'dictonary', 'naiso', 'kaisa', 'ないしよ']) {

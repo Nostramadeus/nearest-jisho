@@ -47,6 +47,20 @@ export function hitCost10(h) {
 export const PROMOTE_MAX_COST = 5;
 export const PROMOTE_MAX_SCORE = 9;
 export const PROMOTE_COUNT = 3;
+/** The record's first sense is marked "usually written in kana" (misc uk). */
+export const usuallyKana = (rec) => !!(rec && rec.s && rec.s[0] && (rec.s[0].m || []).includes('uk') && rec.r && rec.r.length);
+
+/**
+ * Headword shown for a record (SPEC 19.2): its first kana form when the first sense is marked uk, else the first
+ * written form. `typed`: a query or text segment that equals one of the record's forms wins whatever uk says.
+ */
+export function shownHead(rec, typed) {
+  const kf = rec.k || [], rf = rec.r || [];
+  if (typed && (kf.includes(typed) || rf.includes(typed))) return typed;
+  if (usuallyKana(rec)) return rf[0];
+  return kf[0] || rf[0] || '';
+}
+
 export const LABELS = {
   fold: 'long vowel / double letter', ei: 'ei / ee', wa: 'は typed as wa', l: 'l read as r', stem: 'plural / -ing / -ed',
 };
@@ -322,24 +336,34 @@ function promote(store, ctx, hits) {
 }
 
 /**
- * Order of a Japanese group for LATIN and KANA queries (study 1.4).
- * LATIN: 1 tier-0 common by rank; 2 the rest of the top block (tier-0 not common, deinflected, tier 1, variants,
- * promoted) by S; 3 tier 2 (common first, rank, shorter key); 4 the other tier-3 hits by S.
- * KANA: 1 tier 0 as before (typed kana form, then romaji, then deinflected; by rank); 2 tier 1 + variants + promoted
- * by S; 3 and 4 as for LATIN. English hits (wikt group) keep their own order after reading hits of the same block.
- * Tie-break after S: cost, rank, shorter key, recent, pack, id.
+ * Order of a Japanese group for LATIN and KANA queries (study 1.4, LATIN revised by SPEC 21.1, see blockOf).
+ * KANA: tier 0 strictly first (typed kana form, then romaji, then deinflected; by rank); then tier 1 + variants +
+ * promoted by S; prefix; the other near hits by S. English hits (wikt group) keep their own order after the reading
+ * hits of the same block. Inside blocks other than KANA tier 0 and prefix: S, then cost, rank, shorter key, recent,
+ * pack, id.
  */
 function makeReadingComparator(store, ctx) {
   const ranking = ctx.ranking;
   const rankOf = (h) => (h.rank !== undefined ? h.rank : (h.rank = store.rank(h.pack, h.id, ranking)));
   const commonOf = (h) => (h.common !== undefined ? h.common : (h.common = store.isCommon(h.pack, h.id) ? 1 : 0));
   const latin = ctx.kind === 'latin';
+  let rareT0 = false; // the group being sorted has a tier-0 hit without the common flag (set by forGroup)
+  // SPEC 21.1 (replaces the LATIN part of study 1.4): what was typed comes first. Blocks:
+  // 1 tier-0 common; 2 tier-1 common fold hit (LATIN only: a dropped long vowel is a spelling habit);
+  // 3 tier-0 not common (KANA / KANJI: all tier 0 is block 1); 4 the rest of the top block (deinflected, other tier 1,
+  // variants, promoted) by S; 5 prefix; 6 the remaining near hits by S.
   const blockOf = (h) => {
-    if (h.space === 'e') return h.tier === 0 ? 2 : h.tier === 2 ? 3 : 4;
-    if (h.tier === 0) return latin ? (!h.via && commonOf(h) ? 1 : 2) : 1;
-    if (h.tier === 1) return 2;
-    if (h.tier === 2) return 3;
-    return h.promoted ? 2 : 4;
+    if (h.space === 'e') return h.tier === 0 ? 4 : h.tier === 2 ? 5 : 6;
+    if (h.tier === 0) {
+      if (!latin) return 1;
+      if (h.via) return 4;
+      return commonOf(h) ? 1 : 3;
+    }
+    // the exception only lifts a common fold hit ABOVE rare exact hits; with no rare exact hit in the group it stays in
+    // the S-ordered rest (naiso: 内緒 S 7 before 内装 S 8, SPEC 21.1 example; see PROGRESS-app Q57)
+    if (h.tier === 1) return latin && rareT0 && h.label === LABELS.fold && commonOf(h) ? 2 : 4;
+    if (h.tier === 2) return 5;
+    return h.promoted ? 4 : 6;
   };
   const S = (h) => (h.S !== undefined ? h.S : (h.S = hitCost10(h) + pRank(rankOf(h))));
   const tail = (a, b) => {
@@ -353,7 +377,7 @@ function makeReadingComparator(store, ctx) {
     if (a.pack !== b.pack) return a.pack < b.pack ? -1 : 1;
     return a.id - b.id;
   };
-  return (a, b) => {
+  const cmp = (a, b) => {
     const ba = blockOf(a), bb = blockOf(b);
     if (ba !== bb) return ba - bb;
     const ea = a.space === 'e', eb = b.space === 'e';
@@ -363,11 +387,11 @@ function makeReadingComparator(store, ctx) {
       if ((a.sense || 0) !== (b.sense || 0)) return (a.sense || 0) - (b.sense || 0);
       return tail(a, b);
     }
-    if (ba === 1) {
-      if (!latin && (a.sub || 0) !== (b.sub || 0)) return (a.sub || 0) - (b.sub || 0);
+    if (ba === 1 && !latin) {
+      if ((a.sub || 0) !== (b.sub || 0)) return (a.sub || 0) - (b.sub || 0);
       return tail(a, b);
     }
-    if (ba === 3) {
+    if (ba === 5) {
       const ca = commonOf(a), cb = commonOf(b);
       if (ca !== cb) return cb - ca;
       return tail(a, b);
@@ -378,6 +402,11 @@ function makeReadingComparator(store, ctx) {
     if (ca !== cb) return ca - cb;
     return tail(a, b);
   };
+  cmp.forGroup = (list) => {
+    rareT0 = list.some((h) => h.space !== 'e' && h.tier === 0 && !h.via && !commonOf(h));
+    return cmp;
+  };
+  return cmp;
 }
 
 // ---------- written-form search (space k), SPEC 4.7 ----------
@@ -641,8 +670,10 @@ function englishSide(store, ctx, query, packs) {
     }
   });
   let dym = null;
+  let fz0 = null;
   if (ctx.phase === 'full' && tokens.length) {
     const fz = englishFuzzy(store, ctx, tokens);
+    fz0 = fz;
     if (fz) {
       dym = fz.dym;
       for (const q of fz.queries) {
@@ -657,7 +688,7 @@ function englishSide(store, ctx, query, packs) {
       }
     }
   }
-  return { res, dym };
+  return { res, dym, corrections: fz0 ? fz0.queries : [] };
 }
 
 // ---------- highlight info (SPEC 5 "Match highlight") ----------
@@ -772,6 +803,7 @@ export function search(store, query, opts = {}) {
         if (raw && raw !== c) forms.push(raw);
       }
       const open = gateOpen(jaPacks);
+      ctx.nearRan = open;
       if (open) for (const p of jaPacks) for (const f of forms) t3keys.push(...readingT3(store, ctx, p, f, isKana, hits[p]));
       // study 2.9: one-kana variants (KANA queries of 2 to 12 kana; LATIN: voiced / unvoiced, canon length >= 5)
       if (open) {
@@ -813,7 +845,8 @@ export function search(store, query, opts = {}) {
   const mk = (id, map, extraMaps = []) => {
     const all = new Map(map);
     for (const m of extraMaps) for (const h of m.values()) put(all, h);
-    const list = Array.from(all.values()).sort(id === 'en' ? cmp : readingCmp);
+    const values = Array.from(all.values());
+    const list = values.sort(id === 'en' ? cmp : (readingCmp.forGroup ? readingCmp.forGroup(values) : readingCmp));
     const hidden = (map.hidden || 0) + extraMaps.reduce((a, m) => a + (m.hidden || 0), 0);
     const lim = ctx.groupLimits[id] || ctx.limit;
     const results = list.slice(0, lim);
@@ -857,23 +890,81 @@ export function search(store, query, opts = {}) {
     order = enFirst ? [gEn, gWords, gWikt, gNames] : [gWords, gEn, gWikt, gNames];
   }
   out.groups = order.filter((g) => g.results.length);
+  // SPEC 21.2: suggestion chips
+  out.typed = typed;
+  // SPEC 21.3: no chips (and no yellow bar) for KANJI queries
+  out.suggestions = kind === 'kanji' ? [] : suggestionsOf(store, ctx, hits, jaPacks, en, kind);
   // SPEC 17.1: "Words in this text" first, for kana / kanji queries without a tier-0 hit (phase full only)
   if (ctx.phase === 'full' && kind !== 'latin' && !hasTier0(hits.words) && !hasTier0(hits.wikt)) {
     const n = Array.from(typed).length;
     if (n >= TEXT_MIN_CHARS) {
       const tg = textGroup(store, ctx, typed);
-      if (tg) out.groups.unshift(tg);
+      if (tg) { out.groups.unshift(tg); out.suggestions = []; } // SPEC 21.3: text input gets no chips
     }
   }
   // "No exact match" line: only when no group has a tier-0 or tier-1 hit; then the first group (in display order)
   // that carries a did-you-mean (Japanese 4.4 or English 4.9). See PROGRESS-app.md open question Q3.
   const anyExact = out.groups.some((g) => (g.exact !== undefined ? !!g.exact : g.best && g.best.tier <= 1));
+  out.anyExact = anyExact;
   if (!anyExact) {
     for (const g of out.groups) if (g.dym && !out.didYouMean) out.didYouMean = g.dym;
     if (!out.didYouMean && jaDym) out.didYouMean = jaDym;
   }
   for (const g of out.groups) { delete g.best; delete g.exact; delete g.t0; }
   return out;
+}
+
+export const SUGGEST_JA_MAX = 5;
+export const SUGGEST_EN_MAX = 3;
+
+/**
+ * Suggestions (SPEC 21.2): keys that are not what was typed. Japanese side: tier-1, spelling-variant and near keys
+ * (words + wikt), each with its best record (lowest S), ordered by S, cost, rank, at most 5; then English corrections,
+ * at most 3. Only when the near search ran or a tier-1 / variant key exists.
+ * Each: { side, key, chip (text in the typed script), head, pack, id, label, S }.
+ */
+function suggestionsOf(store, ctx, hits, jaPacks, en, kind) {
+  const byKey = new Map();
+  let tier1 = false;
+  for (const p of jaPacks) {
+    for (const h of hits[p].values()) {
+      if (h.space !== 'r' || !h.key || h.key === ctx.canon) continue;
+      if (!(h.tier === 1 || (h.tier === 3 && h.via !== 'contains'))) continue;
+      if (h.tier === 1) tier1 = true;
+      const c10 = hitCost10(h), rank = store.rank(h.pack, h.id, ctx.ranking), S = c10 + pRank(rank);
+      const old = byKey.get(h.key);
+      if (!old || S < old.S || (S === old.S && (c10 < old.c10 || (c10 === old.c10 && rank < old.rank)))) {
+        byKey.set(h.key, { h, S, c10, rank });
+      }
+    }
+  }
+  if (!ctx.nearRan && !tier1) return [];
+  const ja = Array.from(byKey.values())
+    .sort((x, y) => x.S - y.S || x.c10 - y.c10 || x.rank - y.rank || (x.h.key < y.h.key ? -1 : 1))
+    .slice(0, SUGGEST_JA_MAX)
+    .map(({ h, S }) => {
+      const rec = store.getRecord(h.pack, h.id);
+      let chip = h.key;
+      if (kind === 'kana') chip = (rec.r || []).find((f) => kanaToRomaji(f) === h.key) || (rec.r || [])[0] || h.key;
+      return { side: 'ja', key: h.key, chip, head: shownHead(rec), pack: h.pack, id: h.id, label: labelOf(h, kind === 'kana'), S };
+    });
+  const out = ja;
+  if (en && en.corrections && en.corrections.length) {
+    const enHits = Array.from((en.res.words || new Map()).values()).filter((h) => h.tier === 3 && h.tokens);
+    for (const q of en.corrections.slice(0, SUGGEST_EN_MAX)) {
+      const text = q.join(' ');
+      const mine = enHits.filter((h) => h.tokens.join(' ') === text)
+        .sort((x, y) => (x.cls - y.cls) || (x.sense - y.sense) || store.rank(x.pack, x.id, ctx.ranking) - store.rank(y.pack, y.id, ctx.ranking));
+      const best = mine[0];
+      out.push({
+        side: 'en', key: text, chip: text, head: best ? shownHead(store.getRecord(best.pack, best.id)) : '',
+        pack: best ? best.pack : null, id: best ? best.id : null, label: en.dym ? en.dym.reason : '', S: null,
+      });
+    }
+  }
+  // the same spelling twice (a Japanese key and an English correction) would search the same thing: keep the first
+  const seen = new Set();
+  return out.filter((x) => (seen.has(x.chip) ? false : (seen.add(x.chip), true)));
 }
 
 /** Reason label of a hit (SPEC 18: every non-exact row). */
