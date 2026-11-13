@@ -57,7 +57,7 @@ test('entry page for a words record: sections in order, every example, kanji, li
   ] };
   const html = entryHtml(d);
   assert.deepEqual(sectionTitles(html), ['Other forms', 'Meanings', 'Kanji in this word', 'Words that start with 辞書', 'Links']);
-  assert.match(html, /<div class="kana" lang="ja">じしょ<\/div><div class="romaji">jisho<\/div><h2 class="entry-word" lang="ja">辞書<\/h2>/);
+  assert.match(html, /<div class="kana" lang="ja">じしょ<\/div><div class="romaji">jisho<\/div><div class="entry-title"><h2 class="entry-word" lang="ja">辞書<\/h2><button type="button" class="star entry-star" aria-pressed="false"/);
   assert.match(html, /<span class="tag">common<\/span><span class="tag g">N5<\/span>/);
   assert.match(html, /<p lang="ja">辭書<\/p>/);
   for (const ex of ['I look it up in the dictionary.', 'It is a new dictionary.', 'He handed in his resignation.']) assert.ok(html.includes(ex), ex);

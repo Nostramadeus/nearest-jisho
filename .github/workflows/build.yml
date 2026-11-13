@@ -42,11 +42,10 @@ jobs:
         id: meta
         run: |
           STAMP="$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}"
-          if [ "$(grep -c "^const SHELL_VERSION = '[^']*';\$" app/sw.js)" != 1 ]; then
-            echo "::error::line const SHELL_VERSION = '...'; not found exactly once in app/sw.js"; exit 1
-          fi
-          sed -i "s/^const SHELL_VERSION = '[^']*';\$/const SHELL_VERSION = '$STAMP';/" app/sw.js
-          grep -n '^const SHELL_VERSION' app/sw.js
+          BUILT="$(date -u +%s)"
+          # SPEC 12: stamps SHELL_VERSION and SHELL_BUILT (fails if either line is missing), writes app/shell.json
+          node tools/stamp-shell.mjs "$STAMP" "$BUILT"
+          grep -n '^const SHELL_VERSION\|^const SHELL_BUILT' app/sw.js
           echo "date=$(node -p "require('./app/data/version.json').built")" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:

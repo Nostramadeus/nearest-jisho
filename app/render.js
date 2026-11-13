@@ -1,6 +1,19 @@
 // Pure HTML rendering for result cards (no DOM access), shared by main.js and the tests.
 import { POS, MISC, FIELD, DIALECT, NAME_TYPE, SLANG_CODES, label } from './labels.js';
 import { entryAddress, entryHash } from './search/entry.js';
+import { firstGloss } from './favorites.js';
+
+const STAR_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>';
+
+/**
+ * Favorite star (SPEC 11): aria-pressed true = filled star. data-* carry the entry address and the first gloss.
+ * opts.fav(w, r, p) -> bool tells the current state.
+ */
+export function starHtml(addr, gloss, on, extraClass = '') {
+  return `<button type="button" class="star${extraClass ? ' ' + extraClass : ''}" aria-pressed="${on ? 'true' : 'false'}" aria-label="Favorite"` +
+    ` data-w="${esc(addr.w)}" data-r="${esc(addr.r)}" data-p="${esc(addr.p)}" data-g="${esc(gloss || '')}">${STAR_SVG}</button>`;
+}
+const isFav = (opts, a) => !!(opts && opts.fav && opts.fav(a.w, a.r, a.p));
 
 export function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -80,7 +93,7 @@ export function exampleHtml(pair) {
   return `<div class="ex"><span class="ja" lang="ja">${esc(pair[0])}</span><span class="en">${esc(pair[1])}</span></div>`;
 }
 
-export function cardHtml(hit, gi, ri) {
+export function cardHtml(hit, gi, ri, opts = {}) {
   const rec = hit.rec;
   const isWikt = hit.pack === 'wikt';
   const isName = hit.pack === 'names';
@@ -110,8 +123,10 @@ export function cardHtml(hit, gi, ri) {
     ? `<div class="forms">Other forms: <span lang="ja">${esc([...otherK, ...otherR].join('、'))}</span></div>` : '';
   const link = isWikt && rec.u
     ? `<div class="link"><a href="${esc(rec.u)}" target="_blank" rel="noopener">Open in Wiktionary</a></div>` : '';
-  const href = entryHash(entryAddress(hit.pack, rec));
+  const addr = entryAddress(hit.pack, rec);
+  const href = entryHash(addr);
   return `<article class="card" data-g="${gi}" data-r="${ri}" data-entry="${esc(href)}">` +
+    starHtml(addr, firstGloss(rec), isFav(opts, addr)) +
     `<div class="word">${reading ? `<div class="kana" lang="ja">${markText(reading, readMark)}</div>` : ''}` +
     `<div class="kanji" lang="ja"><a class="hw" href="${esc(href)}">${markText(head, headMark)}</a></div>` +
     `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</div>` +
@@ -138,7 +153,7 @@ export function kanjiBlockHtml(literal, k) {
 const ext = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener">${text}</a>`;
 
 /** The entry page (SPEC 10.2). d = entryData() from search/entry.js. */
-export function entryHtml(d) {
+export function entryHtml(d, opts = {}) {
   const { rec, pack, head } = d;
   const isWikt = pack === 'wikt', isName = pack === 'names';
   const tags = [];
@@ -155,7 +170,8 @@ export function entryHtml(d) {
   let html = '<article class="entry">' +
     `<header class="entry-head">${reading ? `<div class="kana" lang="ja">${esc(reading)}</div>` : ''}` +
     `${d.romaji ? `<div class="romaji">${esc(d.romaji)}</div>` : ''}` +
-    `<h2 class="entry-word" lang="ja">${esc(head)}</h2>` +
+    `<div class="entry-title"><h2 class="entry-word" lang="ja">${esc(head)}</h2>` +
+    `${starHtml(entryAddress(pack, rec), firstGloss(rec), isFav(opts, entryAddress(pack, rec)), 'entry-star')}</div>` +
     `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</header>`;
   const sec = (title, body) => `<section class="entry-sec"><h3>${title}</h3>${body}</section>`;
   if (!isWikt) {
@@ -182,7 +198,7 @@ export function entryHtml(d) {
 }
 
 /** All groups of one search result as HTML (SPEC 4.4 "Did you mean" line before tier-3 near results). */
-export function groupsHtml(groups) {
+export function groupsHtml(groups, opts = {}) {
   return groups.map((g, gi) => {
     let html = `<section class="group" data-group="${esc(g.id)}"><h2>${esc(g.title)} <span class="count">${g.total}</span></h2>`;
     let nearShown = false;
@@ -191,9 +207,34 @@ export function groupsHtml(groups) {
         html += '<div class="near">Did you mean</div>';
         nearShown = true;
       }
-      html += cardHtml(h, gi, ri);
+      html += cardHtml(h, gi, ri, opts);
     });
     if (g.total > g.results.length) html += `<button type="button" class="more" data-more="${esc(g.id)}">Show more</button>`;
     return html + '</section>';
   }).join('');
+}
+
+export const FAV_EMPTY = 'No favorites yet. Click the star on a word to keep it here.';
+
+/**
+ * Favorites view (SPEC 11). list: favorites newest first. removed: Set of "w	r	p" keys clicked off during this
+ * visit; those rows stay, greyed, with an outlined star, so a second click restores them.
+ */
+export function favoritesHtml(list, removed = new Set()) {
+  const key = (f) => `${f.w}	${f.r}	${f.p}`;
+  const active = list.filter((f) => !removed.has(key(f))).length;
+  let html = `<div class="fav-head"><h2>Favorites (${active})</h2>` +
+    `<button type="button" class="copy" data-act="copy-favorites"${active ? '' : ' disabled'}>Copy list</button>` +
+    '<span class="copied" role="status"></span></div>';
+  if (!list.length) return html + `<p class="empty">${esc(FAV_EMPTY)}</p>`;
+  html += '<ul class="favs">';
+  for (const f of list) {
+    const off = removed.has(key(f));
+    html += `<li class="fav${off ? ' removed' : ''}" data-t="${esc(f.t || 0)}">` +
+      `<a href="${esc(entryHash(f))}" lang="ja" class="fav-word">${esc(f.w)}</a>` +
+      `${f.r && f.r !== f.w ? ` <span class="kana" lang="ja">${esc(f.r)}</span>` : ''}` +
+      `${f.g ? ` <span class="info">${esc(f.g)}</span>` : ''}` +
+      starHtml(f, f.g, !off, 'fav-star') + '</li>';
+  }
+  return html + '</ul>';
 }

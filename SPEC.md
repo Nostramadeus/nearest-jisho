@@ -321,3 +321,53 @@ and by a monthly schedule that also commits a `DATA-VERSION` bump so the schedul
 - Wiktionary records: sections 1, 3 (glosses and labels), 4, 6, with the "Wiktionary" or "Japanese definition" tag.
 - Worker API: add messages `entry { pack, w, r }` -> the full record + its kanji blocks + the section-5 list, and keep
   search untouched. No ranking rule changes.
+
+## 11. Favorites (added 2026-11-13)
+
+- A star button (`<button aria-pressed>`, hit area 44x44 CSS px, outline star = off, filled star = on) sits at the
+  top right of every result card and next to the headword on the entry page. One click toggles. It never opens the
+  entry page.
+- Storage: localStorage key `nj.favorites`, a JSON array of `{ w, r, p, g, t }`: the entry-address fields `w`, `r`,
+  `p` from section 10.2, `g` = the first gloss (or first translation) at the time of starring, `t` = epoch
+  milliseconds. Identity = (`w`, `r`, `p`). All access wrapped in try/catch; when storage is unavailable the star
+  buttons are hidden.
+- A star button in the search row, left of the settings gear (same size as the gear, label "Favorites"), opens the
+  Favorites view at `#fav` (pushState; Back returns). The view lists favorites newest first as compact rows:
+  headword (link to the entry page), reading, the stored gloss, and a filled star that removes the row (the row stays
+  visible, greyed, with the star outlined, until the view is left, so a wrong click can be undone by clicking again).
+  Header line: `Favorites (N)` and one button `Copy list`, which writes tab-separated lines `word<TAB>reading<TAB>gloss`
+  to the clipboard (`navigator.clipboard.writeText`, fallback: a selected `<textarea>`), then shows "Copied N lines".
+- Empty state text: `No favorites yet. Click the star on a word to keep it here.`
+- The search box stays on top; typing leaves the Favorites view. Favorites never change ranking.
+- The settings panel gets one line: `Favorites and recent searches are stored on this device only.`
+
+## 12. App code updates inside the installed apps (added 2026-11-13)
+
+Problem: the installed apps (Android, Windows, Linux) bundle the app files, so a code fix needed a reinstall.
+Data already updates by itself (section 6). This section does the same for the app files. All logic lives in
+`sw.js`, so even a broken page version can be replaced by the next one.
+
+- CI (`data` job, after stamping): write `app/shell.json` = `{ "built": <epoch seconds of the build, UTC>,
+  "version": "<the stamped SHELL_VERSION>", "files": [ every path in the service worker's SHELL list ] }` and stamp a
+  second constant in `sw.js`, `SHELL_BUILT = <the same epoch seconds>`. In the repo both constants keep placeholder
+  values (`SHELL_BUILT = 0`); the stamping step fails if either line is missing. `shell.json` is deployed with Pages
+  and is NOT in the SHELL list.
+- Applies only when `self.location.hostname` is `localhost` or `127.0.0.1` (the installed apps). On any other host
+  (the website) this section is inactive and the normal service-worker update flow is used.
+- Check: on the service worker's `activate` and on every navigation request, at most once per 6 hours (timestamp kept
+  in a small Cache Storage entry), fetch `https://nostramadeus.github.io/nearest-jisho/shell.json` with `no-store`.
+  If `built` is greater than both `SHELL_BUILT` and the `built` of the newest complete remote shell already stored:
+  download every listed file from `https://nostramadeus.github.io/nearest-jisho/<path>` (`no-store`) into a new cache
+  `nj-remote-shell-<built>`; only when ALL files answered 200, write a marker entry `__complete__` into it and delete
+  older `nj-remote-shell-*` caches. Any failure deletes the partial cache and changes nothing. The check never
+  delays a response (`event.waitUntil`, not awaited by the fetch handler).
+- Serving: for a shell request, if a complete `nj-remote-shell-<built>` exists with `built` > `SHELL_BUILT`, answer
+  from it (match by path relative to the scope); if that file is missing there, fall back to the bundled shell cache,
+  then the network. Data requests are untouched. A new shell is therefore used from the NEXT start of the app.
+- `sw.js` answers a `postMessage({ type: "shell-info" })` with `{ bundled: SHELL_VERSION, bundledBuilt: SHELL_BUILT,
+  active: <version string in use>, remoteBuilt: <built or 0> }`. The settings panel shows two lines:
+  `App version: <active> (built in | updated online)` and `Offline cache: active` or `Offline cache: not available`
+  (when `navigator.serviceWorker` is missing or has no controller after load).
+- `sw.js` must call `self.skipWaiting()` on install and `clients.claim()` on activate (keep if already there).
+- Limit, stated in README: changes to the native wrapper itself (Capacitor / Tauri versions, permissions, icons)
+  still need a reinstall. Everything in `app/` updates by itself.

@@ -1,5 +1,6 @@
-// UI (SPEC 5 and 10). Talks to worker.js; renders Look A cards and the entry page.
-import { esc, groupsHtml, entryHtml } from './render.js';
+// UI (SPEC 5, 10, 11, 12). Talks to worker.js; renders Look A cards, the entry page and the Favorites view.
+import { esc, groupsHtml, entryHtml, favoritesHtml } from './render.js';
+import { createFavorites, favoritesText } from './favorites.js';
 import { didYouMeanText } from './search/engine.js';
 import { parseEntryHash, entryHash } from './search/entry.js';
 
@@ -7,6 +8,16 @@ const $ = (id) => document.getElementById(id);
 const qEl = $('q'), resultsEl = $('results'), dymEl = $('dym'), progressEl = $('progress');
 const recentEl = $('recent'), wikiEl = $('wiki'), settingsEl = $('settings'), gearEl = $('gear');
 const searchViewEl = $('searchview'), entryEl = $('entry'), clearEl = $('clear');
+const favViewEl = $('favview'), favBtnEl = $('favbtn');
+
+// ---------- favorites (SPEC 11) ----------
+const fav = createFavorites(() => localStorage);
+if (!fav.available) document.documentElement.classList.add('no-fav'); // storage unavailable: no stars
+const favKey = (f) => `${f.w}\t${f.r}\t${f.p}`;
+function renderOpts() {
+  const set = new Set(fav.list().map(favKey));
+  return { fav: (w, r, p) => set.has(favKey({ w, r, p })) };
+}
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -22,7 +33,8 @@ const S = {
   groupLimits: {},
   loaded: {},
   lastResult: null,
-  view: 'search',  // 'search' | 'entry'
+  view: 'search',  // 'search' | 'entry' | 'fav'
+  favRemoved: new Map(), // rows clicked off during this visit of the Favorites view (shown greyed): key -> item
   entry: null,     // { w, r, p } of the open entry page
   entryReq: 0,
 };
@@ -79,7 +91,7 @@ function runSearch(phase) {
 }
 
 function setQuery(q, { push = false, focus = false } = {}) {
-  if (S.view === 'entry') { push = true; showSearchView(); } // typing leaves the entry page; Back returns to it
+  if (S.view !== 'search') { push = true; showSearchView(); } // typing leaves the entry page / Favorites; Back returns
   S.query = q;
   if (qEl.value !== q) qEl.value = q;
   S.groupLimits = {};
@@ -121,7 +133,7 @@ function clearSearch() {
   clearTimeout(debounceT);
   clearTimeout(pushT);
   clearTimeout(recentT);
-  const fromEntry = S.view === 'entry';
+  const fromEntry = S.view !== 'search';
   if (fromEntry) showSearchView();
   S.query = '';
   qEl.value = '';
@@ -146,7 +158,8 @@ function route(ev) {
     if (S.view !== 'entry' || !S.entry || entryHash(S.entry) !== entryHash(e)) showEntry(e);
     return;
   }
-  const wasEntry = S.view === 'entry';
+  if (location.hash === '#fav') { if (S.view !== 'fav') showFavorites(); return; }
+  const wasEntry = S.view !== 'search';
   const q = readHash();
   if (wasEntry) showSearchView();
   if (q !== S.query) { lastPushed = q; setQuery(q); return; }
@@ -170,12 +183,21 @@ function openEntry(addr) {
   showEntry(addr);
 }
 
+function setView(v) {
+  if (S.view === 'fav' && v !== 'fav') S.favRemoved.clear(); // greyed rows go away when the view is left
+  S.view = v;
+  searchViewEl.hidden = v !== 'search';
+  entryEl.hidden = v !== 'entry';
+  favViewEl.hidden = v !== 'fav';
+  if (v !== 'entry') { entryEl.innerHTML = ''; S.entry = null; }
+  if (v !== 'fav') favViewEl.innerHTML = '';
+  if (v === 'fav') favBtnEl.setAttribute('aria-current', 'page'); else favBtnEl.removeAttribute('aria-current');
+}
+
 function showEntry(addr) {
-  S.view = 'entry';
+  setView('entry');
   S.entry = addr;
-  searchViewEl.hidden = true;
   wikiEl.hidden = true;
-  entryEl.hidden = false;
   entryEl.innerHTML = '<p class="empty">Loading the entry.</p>';
   window.scrollTo(0, 0);
   S.entryReq++;
@@ -185,20 +207,89 @@ function showEntry(addr) {
 function onEntry(m) {
   if (m.id !== S.entryReq || S.view !== 'entry') return;
   entryEl.innerHTML = m.data
-    ? entryHtml(m.data)
+    ? entryHtml(m.data, renderOpts())
     : `<p class="empty">This entry was not found in the current dictionary data.</p>`;
 }
 
 function showSearchView() {
-  S.view = 'search';
-  S.entry = null;
-  entryEl.hidden = true;
-  entryEl.innerHTML = '';
-  searchViewEl.hidden = false;
+  setView('search');
   renderWiki();
+  // stars may have changed on the entry page or in Favorites: refresh the list's star states in place
+  const o = renderOpts();
+  for (const b of resultsEl.querySelectorAll('.star')) b.setAttribute('aria-pressed', String(o.fav(b.dataset.w, b.dataset.r, b.dataset.p)));
 }
 
+// ---------- Favorites view (SPEC 11) ----------
+function openFavorites() {
+  if (S.view === 'fav') return;
+  if (S.view === 'search') history.replaceState({ scroll: window.scrollY }, '', location.href);
+  history.pushState({ view: 'fav' }, '', '#fav');
+  showFavorites();
+}
+function showFavorites() {
+  setView('fav');
+  wikiEl.hidden = true;
+  renderFavorites();
+  window.scrollTo(0, 0);
+}
+function renderFavorites() {
+  // rows clicked off during this visit stay in the list (greyed) at their old place
+  const list = fav.list();
+  for (const [k, f] of S.favRemoved) if (!list.some((x) => favKey(x) === k)) list.push(f);
+  list.sort((a, b) => (b.t || 0) - (a.t || 0));
+  favViewEl.innerHTML = favoritesHtml(list, new Set(S.favRemoved.keys()));
+}
+favBtnEl.addEventListener('click', openFavorites);
+
+function onStar(btn) {
+  const item = { w: btn.dataset.w, r: btn.dataset.r, p: btn.dataset.p, g: btn.dataset.g };
+  const key = favKey(item);
+  if (S.view === 'fav') {
+    const li = btn.closest('li');
+    const t = li ? Number(li.dataset.t) || undefined : undefined;
+    if (S.favRemoved.has(key)) { fav.add({ ...item, t }); S.favRemoved.delete(key); } // undo: back at its old place
+    else { fav.remove(item.w, item.r, item.p); S.favRemoved.set(key, { ...item, t }); }
+    renderFavorites();
+    return;
+  }
+  const on = fav.toggle(item);
+  btn.setAttribute('aria-pressed', String(on));
+}
+
+async function copyFavorites(btn) {
+  const list = fav.list();
+  const text = favoritesText(list);
+  let ok = false;
+  try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); ok = true; } } catch { ok = false; }
+  if (!ok) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    document.body.removeChild(ta);
+  }
+  const out = btn.parentElement.querySelector('.copied');
+  if (out) out.textContent = ok ? `Copied ${list.length} lines` : 'Could not copy: the clipboard is blocked.';
+}
+
+favViewEl.addEventListener('click', (e) => {
+  const star = e.target.closest('button.star');
+  if (star) { onStar(star); return; }
+  const copy = e.target.closest('button[data-act="copy-favorites"]');
+  if (copy) { copyFavorites(copy); return; }
+  const a = e.target.closest('a[href^="#w="]');
+  if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
+  e.preventDefault();
+  openEntry(parseEntryHash(a.getAttribute('href')));
+});
+
 entryEl.addEventListener('click', (e) => {
+  const star = e.target.closest('button.star');
+  if (star) { onStar(star); return; }
   const a = e.target.closest('a[href^="#w="]');
   if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
   e.preventDefault();
@@ -276,7 +367,7 @@ function onResult(m) {
     resultsEl.innerHTML = m.phase === 'fast' ? resultsEl.innerHTML
       : `<p class="empty">No results for "${esc(S.query)}".${still ? ' Some dictionaries are still loading.' : ''}</p>`;
   } else {
-    resultsEl.innerHTML = groupsHtml(r.groups);
+    resultsEl.innerHTML = groupsHtml(r.groups, renderOpts());
   }
   renderWiki();
 }
@@ -310,6 +401,8 @@ resultsEl.addEventListener('click', (e) => {
     runSearch('full');
     return;
   }
+  const star = e.target.closest('button.star');
+  if (star) { onStar(star); return; } // the star never opens the entry page
   const card = e.target.closest('.card');
   if (!card) return;
   if (S.query.trim()) addRecent(S.query); // a tap counts as a finished search
@@ -329,12 +422,39 @@ resultsEl.addEventListener('click', (e) => {
   openEntry(parseEntryHash(card.dataset.entry));
 });
 
+// ---------- app version and offline cache lines (SPEC 12) ----------
+function showShellInfo() {
+  const av = $('appversion'), oc = $('offline');
+  const none = () => { oc.textContent = 'not available'; av.textContent = 'not available (no offline cache)'; };
+  const sw = navigator.serviceWorker;
+  if (!sw) { none(); return; }
+  const ask = () => {
+    const c = sw.controller;
+    if (!c) { none(); return; }
+    oc.textContent = 'active';
+    const ch = new MessageChannel();
+    ch.port1.onmessage = (e) => {
+      const m = e.data || {};
+      av.textContent = `${m.active} (${m.remoteBuilt ? 'updated online' : 'built in'})`;
+    };
+    c.postMessage({ type: 'shell-info' }, [ch.port2]);
+  };
+  if (sw.controller) { ask(); return; }
+  // first visit: the service worker takes control right after it activates (clients.claim)
+  let done = false;
+  const finish = () => { if (!done) { done = true; ask(); } };
+  sw.addEventListener('controllerchange', finish);
+  setTimeout(finish, 3000);
+}
+
 // ---------- start ----------
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
   navigator.serviceWorker.register('./sw.js').catch(() => { /* offline cache unavailable */ });
 }
+if (document.readyState === 'complete') showShellInfo(); else window.addEventListener('load', showShellInfo);
 const initialEntry = parseEntryHash(location.hash);
 if (initialEntry) { renderEmpty(); showEntry(initialEntry); } // shows the loading line until the pack is in
+else if (location.hash === '#fav') { renderEmpty(); showFavorites(); }
 else {
   const initial = readHash();
   if (initial) { lastPushed = initial; setQuery(initial); } else renderEmpty();

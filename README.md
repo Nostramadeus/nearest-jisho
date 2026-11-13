@@ -6,7 +6,7 @@ Results appear while you type. Search in English, kana, kanji or romaji.
 - Typos are fine: `jihso` finds 辞書 (jisho) and says "letters swapped".
 - Long vowels and double letters are optional: `gakko` finds 学校 (gakkou), `shojo` finds 少女 (shoujo).
 - Verb and adjective forms lead to the dictionary form: `食べさせられた` finds 食べる.
-- Slang from JMdict and Wiktionary is shown with labels; names come from JMnedict; open a result for its full entry with every example and the kanji details.
+- Slang from JMdict and Wiktionary is shown with labels; names come from JMnedict; open a result for its full entry with every example and the kanji details; star words to keep them in Favorites.
 - Everything runs on the device. After the first visit the app works offline.
 
 ## Download
@@ -23,6 +23,10 @@ Results appear while you type. Search in English, kana, kanji or romaji.
 
 The warnings are expected: the files are not signed with a paid certificate.
 The data is rebuilt every month; each build is a new release.
+
+Updates: the installed apps download newer dictionary data and newer app files from the website by themselves
+and use them from the next start. Limit: changes to the native wrapper itself (Capacitor / Tauri versions,
+permissions, icons) still need a reinstall. Everything in `app/` updates by itself.
 
 ## Build the data
 
