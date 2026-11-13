@@ -151,7 +151,7 @@ test('website host (not localhost): no check, normal shell cache', async () => {
   assert.equal((await sw.message({ type: 'shell-info' })).remoteBuilt, 0);
 });
 
-test('6-hour throttle', async () => {
+test('30-minute throttle', async () => {
   const o = 'https://localhost/';
   const sw = makeSW({ origin: o, net: network(o, { remoteBuilt: 1000 }) });
   await sw.install();
@@ -159,14 +159,14 @@ test('6-hour throttle', async () => {
   assert.equal(sw.shellJsonCalls(), 1);
   await sw.get('', 'navigate');
   await sw.get('', 'navigate');
-  assert.equal(sw.shellJsonCalls(), 1); // within 6 hours: no second check
+  assert.equal(sw.shellJsonCalls(), 1); // within 30 minutes: no second check
   // pretend the last check was 7 hours ago
   const meta = sw.store.get('nj-shell-meta');
   await meta.put(o + '__last_check__', new Response(String(Date.now() - 7 * 3600 * 1000)));
   await sw.get('', 'navigate');
   assert.equal(sw.shellJsonCalls(), 2);
-  // 5 hours ago: still throttled
-  await meta.put(o + '__last_check__', new Response(String(Date.now() - 5 * 3600 * 1000)));
+  // 10 minutes ago: still throttled
+  await meta.put(o + '__last_check__', new Response(String(Date.now() - 10 * 60 * 1000)));
   await sw.get('', 'navigate');
   assert.equal(sw.shellJsonCalls(), 2);
 });

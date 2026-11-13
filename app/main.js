@@ -447,6 +447,51 @@ $('checknow').addEventListener('click', () => {
   checkResultEl.textContent = 'Checking.';
   worker.postMessage({ type: 'checkNow' });
 });
+// ---------- app-code update check on demand (installed apps only; works with every service worker version) ----------
+// The service worker checks for newer app files on a page navigation, at most once per its own time limit.
+// This button removes that time stamp and makes one small navigation in a hidden frame, then reports what arrived.
+const IS_APP = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+async function newestDownloadedShell() {
+  let best = null;
+  for (const name of await caches.keys()) {
+    if (!name.startsWith('nj-remote-shell-')) continue;
+    const hit = await (await caches.open(name)).match(new URL('__complete__', document.baseURI).href);
+    if (!hit) continue;
+    const info = await hit.json().catch(() => null);
+    if (info && (!best || info.built > best.built)) best = info;
+  }
+  return best;
+}
+if (IS_APP && 'caches' in window && 'serviceWorker' in navigator) {
+  $('appcheckrow').hidden = false;
+  $('appchecknow').addEventListener('click', async () => {
+    const out = $('appcheckresult');
+    out.hidden = false;
+    if (!navigator.serviceWorker.controller) { out.textContent = 'Offline cache is not available, so the app cannot update itself.'; return; }
+    out.textContent = 'Checking.';
+    try {
+      const before = await newestDownloadedShell();
+      await (await caches.open('nj-shell-meta')).delete(new URL('__last_check__', document.baseURI).href);
+      const fr = document.createElement('iframe');
+      fr.hidden = true;
+      fr.src = './about.html?check=' + Date.now();
+      document.body.appendChild(fr);
+      let after = before;
+      for (let i = 0; i < 20; i++) { // up to 40 seconds
+        await new Promise((r) => setTimeout(r, 2000));
+        after = await newestDownloadedShell();
+        if (after && (!before || after.built > before.built)) break;
+      }
+      fr.remove();
+      out.textContent = after && (!before || after.built > before.built)
+        ? `A newer app version was downloaded (${after.version}). Close the app fully and open it again to use it.`
+        : 'No newer app version was found.';
+    } catch {
+      out.textContent = 'The check could not run.';
+    }
+  });
+}
+
 function onCheckResult(m) {
   const t = checkResultText(m.status);
   checkResultEl.textContent = t;

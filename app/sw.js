@@ -15,7 +15,7 @@ const REMOTE_BASE = 'https://nostramadeus.github.io/nearest-jisho/';
 const REMOTE_PREFIX = 'nj-remote-shell-';
 const COMPLETE = '__complete__';
 const META_CACHE = 'nj-shell-meta';
-const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
+const CHECK_EVERY_MS = 30 * 60 * 1000; // ruling 2026-11-13: 6 hours hid three updates published on one day
 
 const isApp = () => self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
 const scopeUrl = () => new URL(self.registration.scope);
@@ -50,7 +50,7 @@ async function chooseInUse() {
   return inUse;
 }
 
-/** Check for newer app files (at most once per 6 hours). Never throws. */
+/** Check for newer app files (at most once per 30 minutes). Never throws. */
 async function checkRemoteShell() {
   if (!isApp()) return;
   try {

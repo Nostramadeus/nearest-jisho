@@ -614,3 +614,16 @@ The greedy split failed on kana-only text (`きょうはいいてんきですね
 - When the user's query or text segment exactly equals one of the record's forms, that form is the headword shown,
   whatever the `uk` flag says (typing 迄 still shows 迄).
 - The entry address (section 10.2) keeps using the first written form, so existing favorites and links stay valid.
+
+## 20. Faster app-code updates (added 2026-11-13)
+
+Found on the phone: three versions published within a few hours never arrived, because the service worker checked at
+most once per 6 hours.
+- `CHECK_EVERY_MS` is 30 minutes.
+- The settings panel of the installed apps has a button `Check for app updates now` (hidden on the website). It
+  deletes the service worker's time stamp (`__last_check__` in cache `nj-shell-meta`), makes one navigation in a
+  hidden frame (`about.html`) so the service worker runs its check, waits up to 40 seconds, and says either
+  `A newer app version was downloaded (<version>). Close the app fully and open it again to use it.` or
+  `No newer app version was found.` It is page code only, so it also works with an older installed service worker.
+- Limit (unchanged from section 12): the service worker file itself is part of the installed app. An app installed
+  before this section keeps its 6-hour interval until it is reinstalled, but gets the button through a code update.
