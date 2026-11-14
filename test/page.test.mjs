@@ -132,3 +132,50 @@ test('update bar and credits footer stay present in the Settings view', async ()
   assert.match(css, /@media \(min-width: 600px\) \{ \.search input \{ font-size: 20px; \} \}/);
   assert.match(css, /\.gear\[aria-pressed="true"\]::after \{[^}]*height: 2px; background: var\(--acc\);/);
 });
+
+// SPEC 23: one history step per screen state, so Back never leaves the app from a state the user reached inside it
+test('Back from the first query returns to the start screen; the next Back leaves the app', async () => {
+  const p = await makePage(store, '');
+  await p.type('jis');
+  await p.type('jisho'); // letters typed in one go: one step
+  assert.equal(p.url, '#q=jisho');
+  assert.equal(p.historyLength, 2);
+  await p.back();
+  assert.equal(p.leftApp, undefined);
+  assert.ok(!p.url.startsWith('#'));
+  assert.equal(p.view(), 'searchview');
+  assert.equal(p.els.q.value, '');
+  await p.back();
+  assert.equal(p.leftApp, true);
+});
+
+test('a query that stayed 1 second is its own Back step', async () => {
+  const p = await makePage(store, '');
+  await p.type('jisho');
+  await tick(1000);
+  await p.type('kusa');
+  assert.equal(p.historyLength, 3);
+  await p.click('gear'); // Settings on top of a query typed less than a second ago
+  await p.back();
+  assert.equal(p.url, '#q=kusa');
+  await p.back();
+  assert.equal(p.url, '#q=jisho');
+  await tick(100); // the search for the restored query answers a moment later
+  assert.match(p.els.results.innerHTML, /辞書/);
+  await p.back();
+  assert.ok(!p.url.startsWith('#'));
+  assert.equal(p.leftApp, undefined);
+});
+
+test('text typed and deleted again within a second adds no dead Back step', async () => {
+  const p = await makePage(store, '');
+  await p.type('jisho');
+  await tick(1000);
+  await p.type('jishox');
+  await p.type('jisho');
+  await p.back(); // one press: the start screen, not the same list again
+  await tick(10);
+  assert.ok(!p.url.startsWith('#'));
+  assert.equal(p.els.q.value, '');
+  assert.equal(p.leftApp, undefined);
+});

@@ -701,3 +701,31 @@ A second press while a check runs is ignored.
 - Each pill's tap area extends 6 px above and below the visible pill.
 - Lead text without an exact match is shortened to `No exact match. Did you mean:` (the typed text is visible in the
   search box). This overrides the wrap, 36 px and 8 px values of 21.2.
+
+## 22. Furigana over its own kanji (added 2026-11-14, owner's report on 地団駄踏む)
+
+- Before: the whole reading stood as one line above the whole word. On 地団駄踏む the line じだんだふむ looked like the
+  reading of 地団駄 alone.
+- Rule: result cards and the entry page header show the reading as furigana (`<ruby>`) over the part it belongs to.
+  The written form is split into kana runs and other runs (kanji, 々, digits, letters). The kana runs are fixed
+  points in the reading; every other run gets the reading text between them. 地団駄を踏む + じだんだをふむ ->
+  地団駄(じだんだ) を 踏(ふ) む. Katakana and hiragana count as equal for the match.
+- Granularity: one reading per kanji RUN, not per single kanji (the data has no per-kanji readings).
+- Fallback: when the reading does not fit the form (一ヶ月 / いっかげつ) the old plain reading line is shown.
+- Known limit: a kana run that also occurs inside a kanji reading can be matched too early (物の怪 / もののけ).
+- Highlight marks (typed length) are kept: on the furigana for reading matches, on the base text for written matches.
+- Code: `furigana()` and `rubyHtml()` in `app/render.js`. Row lists (Favorites, starts-with) keep reading beside word.
+
+## 23. Back button: one history step per screen state (added 2026-11-14, owner's report: Back closed the app)
+
+- Cause: while typing, the app REPLACED the current history entry, so the first query overwrote the start screen's
+  entry; one second later it pushed the same query again. Back then hit a twin entry (nothing changed) and the next
+  Back left the app. A query typed less than a second before opening an entry had the same loss.
+- Rule: the current entry is "settled" when it is the start screen, a query that stayed 1 second or was confirmed
+  (Enter, suggestion chip, recent search), an entry page, Favorites or Settings, or any entry reached by Back /
+  Forward. A query change on a settled entry PUSHES a new entry; on an unsettled entry it REPLACES (no step per
+  letter). Opening an entry page or a panel settles the query under it.
+- Clear button: same rule (it is a query change to the empty query).
+- Twin guard: when text is typed and deleted again within a second, the current entry repeats the entry below it;
+  Back then takes one more step so that every press changes the screen.
+- Result: Back leaves the app only from the first screen of the session. No native code; `app/main.js` only.

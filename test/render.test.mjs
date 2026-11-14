@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadFixtureStore } from './helpers/fixture.mjs';
 import { search } from '../app/search/engine.js';
-import { cardHtml, groupsHtml, kanjiBlockHtml, markText, markTokens, esc } from '../app/render.js';
+import { cardHtml, groupsHtml, kanjiBlockHtml, markText, markTokens, esc, furigana, rubyHtml } from '../app/render.js';
 
 const { store, cleanup } = await loadFixtureStore();
 test.after(cleanup);
@@ -26,7 +26,7 @@ test('escaping and marks', () => {
 test('reading match marks the reading; prefix marks the typed length', () => {
   const r = resolved('jisho');
   const html = groupsHtml(r.groups);
-  assert.match(html, /<div class="kana" lang="ja"><mark>じしょ<\/mark><\/div>/);
+  assert.match(html, /<ruby>辞書<rt><mark>じしょ<\/mark><\/rt><\/ruby>/); // SPEC 22: the reading sits over its kanji
   assert.match(html, /<mark>じしょ<\/mark>けい/); // tier 2 prefix: the kana that cover the typed "jisho"
   assert.match(html, /<h2>Japanese words <span class="count">6<\/span><\/h2>/);
   assert.match(html, /<span class="tag">common<\/span><span class="tag g">N5<\/span>/);
@@ -43,7 +43,7 @@ test('near results sit under a Did you mean line; English tokens are marked', ()
 test('kanji match marks the headword; deinflection note shown', () => {
   const html = groupsHtml(resolved('辞書').groups);
   // the headword is a real link to the entry page; no inline kanji buttons any more (SPEC 10.2)
-  assert.match(html, /<div class="kanji" lang="ja"><a class="hw" href="#w=%E8%BE%9E%E6%9B%B8&amp;r=%E3%81%98%E3%81%97%E3%82%87&amp;p=words"><mark>辞書<\/mark><\/a><\/div>/);
+  assert.match(html, /<div class="kanji fu" lang="ja"><a class="hw" href="#w=%E8%BE%9E%E6%9B%B8&amp;r=%E3%81%98%E3%81%97%E3%82%87&amp;p=words"><ruby><mark>辞書<\/mark><rt>じしょ<\/rt><\/ruby><\/a><\/div>/);
   assert.ok(!html.includes('data-kanji'));
   assert.match(html, /<article class="card" data-g="0" data-r="0" data-entry="#w=/);
   const d = groupsHtml(resolved('たべた').groups);
@@ -79,4 +79,16 @@ test('card has no raw HTML from data', () => {
   const hit = { pack: 'words', id: 0, tier: 0, hl: { space: 'r', form: 'じしょ', len: -1 },
     rec: { k: ['<i>'], r: ['じしょ'], s: [{ p: ['n'], g: ['<script>alert(1)</script>'] }] } };
   assert.ok(!cardHtml(hit, 0, 0).includes('<script>'));
+});
+
+test('SPEC 22: furigana goes over its own kanji run; kana of the word are fixed points', () => {
+  assert.deepEqual(furigana('地団駄を踏む', 'じだんだをふむ'), [['地団駄', 'じだんだ'], ['を', ''], ['踏', 'ふ'], ['む', '']]);
+  assert.deepEqual(furigana('地団駄踏む', 'じだんだふむ'), [['地団駄踏', 'じだんだふ'], ['む', '']]);
+  assert.deepEqual(furigana('消しゴム', 'けしゴム'), [['消', 'け'], ['しゴム', '']]);
+  assert.deepEqual(furigana('言い合い', 'いいあい'), [['言', 'い'], ['い', ''], ['合', 'あ'], ['い', '']]);
+  assert.equal(furigana('じしょ', 'じしょ'), null); // no kanji
+  assert.equal(furigana('食べる', 'のむ'), null);   // reading does not fit: the plain reading line is shown
+  assert.equal(rubyHtml(furigana('辞書形', 'じしょけい'), null, 3), '<ruby>辞書形<rt><mark>じしょ</mark>けい</rt></ruby>');
+  assert.equal(rubyHtml(furigana('踏む', 'ふむ'), -1, null), '<ruby><mark>踏</mark><rt>ふ</rt></ruby><mark>む</mark>');
+  assert.equal(rubyHtml(furigana('踏む', 'ふむ'), null, 2), '<ruby>踏<rt><mark>ふ</mark></rt></ruby><mark>む</mark>');
 });

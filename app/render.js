@@ -27,6 +27,54 @@ export function markText(text, len) {
   return (n ? `<mark>${esc(chars.slice(0, n).join(''))}</mark>` : '') + esc(chars.slice(n).join(''));
 }
 
+const KANA_CHAR_RE = /^[ぁ-ゖゝゞァ-ヺー-ヾ]$/;
+const hira = (s) => s.replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+
+/**
+ * Furigana placement (SPEC 22): split a written form into kana runs and other runs (kanji, 々, digits, letters) and
+ * give every other run its own part of the reading. The kana runs of the form are fixed points in the reading:
+ * 地団駄を踏む + じだんだをふむ -> 地団駄(じだんだ) を 踏(ふ) む. Returns [[base, rt], ...] (rt '' for a kana run), or
+ * null when the form has no non-kana run or the reading does not fit (the caller then shows the plain reading line).
+ */
+export function furigana(head, reading) {
+  if (!head || !reading) return null;
+  const runs = [];
+  for (const ch of Array.from(head)) {
+    const kana = KANA_CHAR_RE.test(ch);
+    const last = runs[runs.length - 1];
+    if (last && last.kana === kana) last.text += ch; else runs.push({ kana, text: ch });
+  }
+  if (runs.every((r) => r.kana)) return null;
+  const m = new RegExp(`^${runs.map((r) => (r.kana ? `(${hira(r.text)})` : '(.+?)')).join('')}$`, 'u').exec(hira(reading));
+  if (!m) return null;
+  let pos = 0;
+  return runs.map((r, i) => {
+    const part = reading.slice(pos, pos + m[i + 1].length); // katakana -> hiragana keeps the length
+    pos += part.length;
+    return [r.text, r.kana ? '' : part];
+  });
+}
+
+/** <ruby> markup for furigana() parts; headMark / readMark as in headParts (leading characters marked, -1 = all). */
+export function rubyHtml(parts, headMark, readMark) {
+  const H = headMark === -1 ? Infinity : headMark || 0, R = readMark === -1 ? Infinity : readMark || 0;
+  const cut = (n, len) => Math.max(0, Math.min(n, len));
+  let hp = 0, rp = 0, html = '';
+  for (const [base, rt] of parts) {
+    const len = Array.from(base).length;
+    const hm = cut(H - hp, len);
+    hp += len;
+    if (rt) {
+      html += `<ruby>${markText(base, hm)}<rt>${markText(rt, cut(R - rp, rt.length))}</rt></ruby>`;
+      rp += rt.length;
+    } else { // a kana run is its own reading: a mark on the reading shows on the run itself
+      html += markText(base, Math.max(hm, cut(R - rp, len)));
+      rp += len;
+    }
+  }
+  return html;
+}
+
 /** Gloss text with each matched English token marked (whole word, or word prefix for the last token). */
 export function markTokens(text, tokens) {
   if (!tokens || !tokens.length) return esc(text);
@@ -134,10 +182,11 @@ export function cardHtml(hit, gi, ri, opts = {}) {
     ? `<div class="link"><a href="${esc(rec.u)}" target="_blank" rel="noopener">Open in Wiktionary</a></div>` : '';
   const addr = entryAddress(hit.pack, rec);
   const href = entryHash(addr);
+  const fu = reading ? furigana(head, reading) : null; // SPEC 22: reading over its own kanji; else the plain line
   return `<article class="card" data-g="${gi}" data-r="${ri}" data-entry="${esc(href)}">` +
     starHtml(addr, firstGloss(rec), isFav(opts, addr), '', head) +
-    `<div class="word">${reading ? `<div class="kana" lang="ja">${markText(reading, readMark)}</div>` : ''}` +
-    `<div class="kanji" lang="ja"><a class="hw" href="${esc(href)}">${markText(head, headMark)}</a></div>` +
+    `<div class="word">${reading && !fu ? `<div class="kana" lang="ja">${markText(reading, readMark)}</div>` : ''}` +
+    `<div class="kanji${fu ? ' fu' : ''}" lang="ja"><a class="hw" href="${esc(href)}">${fu ? rubyHtml(fu, headMark, readMark) : markText(head, headMark)}</a></div>` +
     `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</div>` +
     `<div class="body">${notes}${body}${moreEx}${forms}${link}</div></article>`;
 }
@@ -192,10 +241,11 @@ export function entryHtml(d, opts = {}) {
     }
   }
   const reading = d.reading && d.reading !== head ? d.reading : '';
+  const fu = reading ? furigana(head, reading) : null;
   let html = '<article class="entry">' +
-    `<header class="entry-head">${reading ? `<div class="kana" lang="ja">${esc(reading)}</div>` : ''}` +
+    `<header class="entry-head">${reading && !fu ? `<div class="kana" lang="ja">${esc(reading)}</div>` : ''}` +
     `${d.romaji ? `<div class="romaji">${esc(d.romaji)}</div>` : ''}` +
-    `<div class="entry-title"><h2 class="entry-word" lang="ja">${esc(head)}</h2>` +
+    `<div class="entry-title"><h2 class="entry-word${fu ? ' fu' : ''}" lang="ja">${fu ? rubyHtml(fu, null, null) : esc(head)}</h2>` +
     `${starHtml(entryAddress(pack, rec), firstGloss(rec), isFav(opts, entryAddress(pack, rec)), 'entry-star', head)}</div>` +
     `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</header>`;
   const sec = (title, body) => `<section class="entry-sec"><h3>${title}</h3>${body}</section>`;

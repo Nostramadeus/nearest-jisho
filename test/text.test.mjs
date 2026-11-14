@@ -87,7 +87,7 @@ test('function-word rows and the rendered group', () => {
   assert.match(html, /<div class="titem" id="t-1"><a class="fnrow" href="#w=%E3%81%AE&amp;r=%E3%81%AE&amp;p=words"><span class="seg" lang="ja">の<\/span> <span class="pos">Particle<\/span> <span class="info">indicates possessive<\/span><\/a><\/div>/);
   assert.match(html, /<div class="titem" id="t-0"><article class="card"/);
   // the match highlight marks the segment in the headword
-  assert.match(html, /<a class="hw" href="[^"]*"><mark>彼方<\/mark><\/a>/);
+  assert.match(html, /<a class="hw" href="[^"]*"><ruby><mark>彼方<\/mark><rt>[^<]+<\/rt><\/ruby><\/a>/);
   assert.match(html, /<p class="textnote">Split automatically by the most common words; it can be wrong\.<\/p>/);
 });
 

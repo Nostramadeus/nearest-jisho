@@ -89,7 +89,14 @@ worker.onmessage = (ev) => {
 };
 
 // ---------- search flow ----------
-let debounceT = 0, pushT = 0, recentT = 0, lastPushed = null;
+// History model (SPEC 23, ruling 2026-11-14): one history step per screen state worth returning to, so the Android
+// Back button always goes one state back and leaves the app only from the first screen.
+// settled: the current history entry is such a state (the first screen, a query that stayed 1 second or was confirmed,
+//   an entry page, Favorites / Settings). The next query change PUSHES a new entry. While it is false, query changes
+//   REPLACE the current entry, so typing does not add one step per letter.
+// below: the query of the search entry under the current unsettled one (null = not a search entry / unknown).
+// twin: the current entry repeats the query of the entry below it; Back takes one more step (see route).
+let debounceT = 0, settleT = 0, recentT = 0, settled = true, below = null, twin = false;
 
 function runSearch(phase) {
   S.seq++;
@@ -99,33 +106,45 @@ function runSearch(phase) {
   });
 }
 
-function setQuery(q, { push = false, focus = false } = {}) {
-  if (S.view !== 'search') { push = true; showSearchView(); } // typing leaves the entry page / Favorites; Back returns
+/** Show query q (input, results, recent list). Does not touch the history. */
+function applyQuery(q, focus) {
   S.query = q;
   if (qEl.value !== q) qEl.value = q;
   S.groupLimits = {};
-  syncHash(push);
+  clearTimeout(settleT);
+  clearTimeout(recentT);
   if (focus) qEl.focus();
   if (!q.trim()) { renderEmpty(); return; }
   runSearch();
-  armTimers();
+  recentT = setTimeout(() => { if (S.query === q) addRecent(q); }, 2000);
 }
 
 function emptyAddress() { return location.pathname + location.search; }
 
-function syncHash(push) {
-  const hash = S.query ? `#q=${encodeURIComponent(S.query)}` : emptyAddress();
-  if (push) { history.pushState(null, '', hash); lastPushed = S.query; } else history.replaceState(null, '', hash);
+/** Write S.query to the history: a new entry when the current one is settled (or push is forced), else in place. */
+function writeQuery(prev, forcePush) {
+  const url = S.query ? `#q=${encodeURIComponent(S.query)}` : emptyAddress();
+  if (settled || forcePush) {
+    history.pushState(null, '', url);
+    below = S.view === 'search' && forcePush !== 'view' ? prev : null;
+    twin = false;
+  } else {
+    history.replaceState(null, '', url);
+    twin = below !== null && S.query === below;
+  }
+  settled = false;
 }
 
-function armTimers() {
-  clearTimeout(pushT);
-  clearTimeout(recentT);
-  const q = S.query;
-  pushT = setTimeout(() => {
-    if (S.view === 'search' && S.query === q && lastPushed !== q) { history.pushState(null, '', `#q=${encodeURIComponent(q)}`); lastPushed = q; }
-  }, 1000);
-  recentT = setTimeout(() => { if (S.query === q) addRecent(q); }, 2000);
+/** push: a confirmed query (suggestion chip, recent search): its own history step, Back returns to the typed text. */
+function setQuery(q, { push = false, focus = false } = {}) {
+  const leaving = S.view !== 'search'; // typing leaves the entry page / Favorites / Settings; Back returns there
+  if (leaving) showSearchView();
+  const prev = S.query;
+  applyQuery(q, focus);
+  if (leaving || q !== prev) writeQuery(prev, leaving ? 'view' : push && !!prev.trim());
+  if (!q.trim()) return;
+  if (push) settled = true;
+  else settleT = setTimeout(() => { if (S.view === 'search' && S.query === q) settled = true; }, 1000);
 }
 
 qEl.addEventListener('input', () => {
@@ -133,22 +152,14 @@ qEl.addEventListener('input', () => {
   debounceT = setTimeout(() => setQuery(qEl.value), 60);
 });
 qEl.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { clearTimeout(debounceT); setQuery(qEl.value); qEl.blur(); }
+  if (e.key === 'Enter') { clearTimeout(debounceT); setQuery(qEl.value); if (S.query.trim()) settled = true; qEl.blur(); }
   else if (e.key === 'Escape') { e.preventDefault(); clearSearch(); }
 });
 
 // ---------- clear button (SPEC 10.1) ----------
 function clearSearch() {
   clearTimeout(debounceT);
-  clearTimeout(pushT);
-  clearTimeout(recentT);
-  const fromEntry = S.view !== 'search';
-  if (fromEntry) showSearchView();
-  S.query = '';
-  qEl.value = '';
-  if (fromEntry) history.pushState(null, '', emptyAddress()); else history.replaceState(null, '', emptyAddress());
-  lastPushed = '';
-  renderEmpty();
+  setQuery('', { focus: true });
   qEl.focus();
 }
 clearEl.addEventListener('click', clearSearch);
@@ -162,6 +173,9 @@ function readHash() {
 }
 
 function route(ev) {
+  const wasTwin = twin;
+  settled = true; below = null; twin = false; // every entry reached by Back / Forward or a link is a state of its own
+  clearTimeout(settleT);
   const e = parseEntryHash(location.hash);
   if (e) {
     if (S.view !== 'entry' || !S.entry || entryHash(S.entry) !== entryHash(e)) showEntry(e);
@@ -171,8 +185,10 @@ function route(ev) {
   if (location.hash === '#settings') { if (S.view !== 'settings') showSettings(); return; }
   const wasEntry = S.view !== 'search';
   const q = readHash();
+  // Back from an entry that repeated the query of the step below it: nothing would change on screen, go one more step
+  if (wasTwin && !wasEntry && q === S.query) { history.back(); return; }
   if (wasEntry) showSearchView();
-  if (q !== S.query) { lastPushed = q; setQuery(q); return; }
+  if (q !== S.query) { applyQuery(q); return; }
   if (wasEntry) {
     if (!q.trim()) renderEmpty();
     const y = ev && ev.state && typeof ev.state.scroll === 'number' ? ev.state.scroll : 0;
@@ -190,6 +206,7 @@ function openEntry(addr) {
     history.replaceState({ scroll: window.scrollY }, '', location.href);
   }
   history.pushState({ view: 'entry' }, '', entryHash(addr));
+  settled = true; below = null; twin = false;
   showEntry(addr);
 }
 
@@ -251,6 +268,7 @@ const SHOW = { fav: () => showFavorites(), settings: () => showSettings() };
  */
 function togglePanel(v) {
   if (S.view === v) { closePanel(); return; }
+  settled = true; below = null; twin = false;
   if (PANELS.includes(S.view)) {
     history.replaceState({ view: v }, '', `#${v}`);
     SHOW[v]();
@@ -266,6 +284,7 @@ function closePanel() {
   // reached by a direct visit: there is nothing to go back to, show the search view
   showSearchView();
   history.replaceState(null, '', S.query ? `#q=${encodeURIComponent(S.query)}` : emptyAddress());
+  settled = true; below = null; twin = false;
   if (!S.query.trim()) renderEmpty();
 }
 function openFavorites() { togglePanel('fav'); }
@@ -688,6 +707,6 @@ else if (location.hash === '#fav') { renderEmpty(); showFavorites(); }
 else if (location.hash === '#settings') { renderEmpty(); showSettings(); }
 else {
   const initial = readHash();
-  if (initial) { lastPushed = initial; setQuery(initial); } else renderEmpty();
+  if (initial) applyQuery(initial); else renderEmpty();
 }
 qEl.focus();
