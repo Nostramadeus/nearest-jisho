@@ -48,17 +48,25 @@ export async function buildWords({ release, romaji, jiten, jlpt, priority }) {
   const file = await download(release.url('jmdict-examples-eng'), 'jmdict-examples-eng.json.tgz');
   const w = new PackWriter(OUT, 'words', ['r', 'k', 'e']);
   const miscCount = Object.fromEntries(MISC_COUNT_TAGS.map((t) => [t, 0]));
-  let header = null, examples = 0, withFf = 0, withFn = 0, withJ = 0;
+  let header = null, examples = 0, withFf = 0, withFn = 0, withJ = 0, hiddenForms = 0;
+  const searchOnly = (x) => (x.tags || []).some((t) => t === 'sK' || t === 'sk');
   const forRank = []; // per record: [forms, hiragana readings, kanaRowsOk, fn]; ff is computed after all pairs are known
   const allPairs = new Set();
   for await (const item of jmdictSimplifiedRecords(file, 'words')) {
     if (item.header) { header = item.header; continue; }
     const e = item;
-    const k = e.kanji.map((x) => x.text);
-    const r = e.kana.map((x) => x.text);
+    // SPEC 24: search-only forms (JMdict tags sK / sk, e.g. 地団駄をふむ) stay in the search keys and the rank data
+    // (kAll / rAll) but are not shown: rec.k / rec.r hold the forms to show, rec.h the hidden ones
+    const kAll = e.kanji.map((x) => x.text);
+    const rAll = e.kana.map((x) => x.text);
+    const k = e.kanji.filter((x) => !searchOnly(x)).map((x) => x.text);
+    let r = e.kana.filter((x) => !searchOnly(x)).map((x) => x.text);
+    if (!r.length) r = rAll;
+    const hid = uniq([...kAll, ...rAll]).filter((f) => !k.includes(f) && !r.includes(f));
     const rec = {};
     if (k.length) rec.k = k;
     if (r.length) rec.r = r;
+    if (hid.length) { rec.h = hid; hiddenForms += hid.length; }
     if (e.kanji.some((x) => x.common) || e.kana.some((x) => x.common)) rec.c = 1;
     const seq = Number(e.id);
     const j = jlpt.map.get(seq);
@@ -94,14 +102,14 @@ export async function buildWords({ release, romaji, jiten, jlpt, priority }) {
     rec.s = senses;
     const fn = priority.get(seq) ?? UNKNOWN;
     if (fn < UNKNOWN) withFn++;
-    const forms = uniq([...k, ...r]);
-    const readingsHira = uniq(r.map((x) => romaji.toHiragana(x)));
+    const forms = uniq([...kAll, ...rAll]);
+    const readingsHira = uniq(rAll.map((x) => romaji.toHiragana(x)));
     for (const f of forms) for (const rh of readingsHira) allPairs.add(f + '\t' + rh);
-    const kanaRowsOk = k.length === 0 || e.sense.some((s) => s.misc.includes('uk'));
+    const kanaRowsOk = kAll.length === 0 || e.sense.some((s) => s.misc.includes('uk'));
     forRank.push([forms, readingsHira, kanaRowsOk, fn]);
     w.add(rec, UNKNOWN, fn, {
-      r: uniq(r.map((x) => romaji.kanaToRomaji(x)).filter(Boolean)),
-      k: uniq([...k, ...r].map(nfkc)),
+      r: uniq(rAll.map((x) => romaji.kanaToRomaji(x)).filter(Boolean)),
+      k: uniq([...kAll, ...rAll].map(nfkc)),
       e: eKeys,
     });
   }
@@ -112,7 +120,7 @@ export async function buildWords({ release, romaji, jiten, jlpt, priority }) {
   });
   const res = w.finish();
   rmCache(file);
-  log(`words: ${res.n} records, ${mb(res.bytes)} (${res.layout}); examples ${examples}; fn known ${withFn}; ff known ${withFf}; jlpt ${withJ}`);
+  log(`words: ${res.n} records, ${mb(res.bytes)} (${res.layout}); examples ${examples}; fn known ${withFn}; ff known ${withFf}; jlpt ${withJ}; search-only forms hidden ${hiddenForms}`);
   return { ...res, dictDate: header?.dictDate, miscCount, examples, withFn, withFf, withJ };
 }
 

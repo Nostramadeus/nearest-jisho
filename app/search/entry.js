@@ -82,7 +82,7 @@ export const SENTENCE_MAX = 25;
  */
 export function sentenceKeys(pack, rec) {
   if (pack === 'names') return [];
-  const kf = (rec.k || []), rf = (rec.r || []);
+  const kf = [...(rec.k || []), ...(rec.h || [])], rf = (rec.r || []); // rec.h: search-only forms (SPEC 24)
   const keys = [];
   for (const k of kf) {
     for (const r of rf) keys.push(`${k}\t${toHiragana(r)}`);

@@ -45,8 +45,12 @@ export function furigana(head, reading) {
     if (last && last.kana === kana) last.text += ch; else runs.push({ kana, text: ch });
   }
   if (runs.every((r) => r.kana)) return null;
-  const m = new RegExp(`^${runs.map((r) => (r.kana ? `(${hira(r.text)})` : '(.+?)')).join('')}$`, 'u').exec(hira(reading));
+  const fit = (any) => new RegExp(`^${runs.map((r) => (r.kana ? `(${hira(r.text)})` : any)).join('')}$`, 'u').exec(hira(reading));
+  const m = fit('(.+?)'); // shortest parts first
   if (!m) return null;
+  // Ruling 2026-11-14: when the longest-parts-first split differs, the reading can be cut in more than one way
+  // (物の怪 / もののけ: も-の-のけ or もの-の-け). No guessed breaks then: one reading over the whole word.
+  if (fit('(.+)').slice(1).join('\t') !== m.slice(1).join('\t')) return [[head, reading]];
   let pos = 0;
   return runs.map((r, i) => {
     const part = reading.slice(pos, pos + m[i + 1].length); // katakana -> hiragana keeps the length

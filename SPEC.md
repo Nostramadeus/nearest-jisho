@@ -712,7 +712,11 @@ A second press while a check runs is ignored.
   地団駄(じだんだ) を 踏(ふ) む. Katakana and hiragana count as equal for the match.
 - Granularity: one reading per kanji RUN, not per single kanji (the data has no per-kanji readings).
 - Fallback: when the reading does not fit the form (一ヶ月 / いっかげつ) the old plain reading line is shown.
-- Known limit: a kana run that also occurs inside a kanji reading can be matched too early (物の怪 / もののけ).
+- KNOWN ISSUE (owner's ruling 2026-11-14, left as is): some words can be cut in more than one way, because a kana
+  of the word also occurs inside the reading of the kanji next to it (物の怪 / もののけ: も-の-のけ or もの-の-け).
+  The app cannot tell which cut is right. For these words it makes no cut: ONE reading over the WHOLE word. Detection:
+  the shortest-parts-first split and the longest-parts-first split differ. Proper fix, not planned: ship per-kanji
+  readings (JmdictFurigana data file) with the words pack; estimate about 150k tokens plus a bigger data download.
 - Highlight marks (typed length) are kept: on the furigana for reading matches, on the base text for written matches.
 - Code: `furigana()` and `rubyHtml()` in `app/render.js`. Row lists (Favorites, starts-with) keep reading beside word.
 
@@ -729,3 +733,16 @@ A second press while a check runs is ignored.
 - Twin guard: when text is typed and deleted again within a second, the current entry repeats the entry below it;
   Back then takes one more step so that every press changes the screen.
 - Result: Back leaves the app only from the first screen of the session. No native code; `app/main.js` only.
+
+## 24. Search-only spellings are not shown (added 2026-11-14, owner's ruling)
+
+- JMdict marks some spellings as search-only (tags `sK` for written forms, `sk` for kana forms). Example: the entry
+  地団駄を踏む also lists 地団駄をふむ. They exist so that a search for them finds the word; they are not for display.
+- Before: the words pack stored every spelling in `k` / `r`, and a card whose match was a search-only spelling showed
+  it as the headword (search 地団駄 showed a card 地団駄をふむ).
+- Rule: `build/lib/packs.mjs` puts search-only spellings in `rec.h`. `rec.k` / `rec.r` hold only spellings to show.
+  Search keys and frequency ranks still use every spelling, so search results and their order do not change.
+- The app never shows `rec.h`. `sentenceKeys()` (`app/search/entry.js`) still uses it, so example sentences written
+  with a search-only spelling are still found.
+- A record whose kana forms are all search-only keeps them all in `r`.
+- Count on 2026-11-14: 20,849 search-only spellings hidden in 219,040 word records.

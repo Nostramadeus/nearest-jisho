@@ -92,3 +92,15 @@ test('SPEC 22: furigana goes over its own kanji run; kana of the word are fixed 
   assert.equal(rubyHtml(furigana('踏む', 'ふむ'), -1, null), '<ruby><mark>踏</mark><rt>ふ</rt></ruby><mark>む</mark>');
   assert.equal(rubyHtml(furigana('踏む', 'ふむ'), null, 2), '<ruby>踏<rt><mark>ふ</mark></rt></ruby><mark>む</mark>');
 });
+
+test('SPEC 22: a reading that can be cut in two ways goes over the whole word', () => {
+  assert.deepEqual(furigana('物の怪', 'もののけ'), [['物の怪', 'もののけ']]);
+  assert.equal(rubyHtml(furigana('物の怪', 'もののけ'), null, null), '<ruby>物の怪<rt>もののけ</rt></ruby>');
+});
+
+test('SPEC 24: a match on a search-only spelling shows the first normal spelling', () => {
+  const rec = { k: ['地団駄を踏む', '地団太を踏む'], r: ['じだんだをふむ'], h: ['地団駄をふむ'], s: [{ g: ['to stamp one\'s feet'] }] };
+  const html = cardHtml({ pack: 'words', id: 0, tier: 2, hl: { space: 'k', form: '地団駄をふむ', len: -1 }, rec }, 0, 0);
+  assert.match(html, /<ruby>地団駄<rt>じだんだ<\/rt><\/ruby>を<ruby>踏<rt>ふ<\/rt><\/ruby>む/);
+  assert.ok(!html.includes('地団駄をふむ'));
+});
