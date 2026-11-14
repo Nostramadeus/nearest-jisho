@@ -166,7 +166,13 @@ function runSearch(m, phase) {
 }
 
 // Entry page (SPEC 10.2): answered once its pack and the kanji data are in (or every pack was tried).
-function answerEntry(m) {
+let pitchLoad = null; // SPEC 25: the pitch pack loads when the first entry page opens; a failure only hides the line
+function ensurePitch() {
+  if (!inUse.pitch || !store) return Promise.resolve();
+  return (pitchLoad ||= store.loadPitch().catch(() => {}));
+}
+async function answerEntry(m) {
+  await ensurePitch();
   const id = findEntry(store, m.pack, m.w, m.r);
   // sentences: still loading only while the sentence pack is listed and neither loaded nor failed
   const sentLoading = !!inUse[SENT] && !loaded[SENT] && !failed[SENT];

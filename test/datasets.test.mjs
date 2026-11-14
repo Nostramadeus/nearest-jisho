@@ -12,7 +12,7 @@ import {
   chooseData, checkUpdates, mayDownload, wifiNoteShown, WIFI_UNKNOWN_NOTE, REMOTE_BASE, cacheNameOf, versionOf, readerFor,
 } from '../app/datasets.js';
 
-const PACKS = ['words', 'names', 'wikt', 'sent', 'kanji'];
+const PACKS = ['words', 'names', 'wikt', 'sent', 'kanji', 'pitch'];
 const appFile = (name) => readFileSync(fileURLToPath(new URL(`../app/${name}`, import.meta.url)), 'utf8');
 
 /** Fixture data folder with "files" and "hash" in version.json. */

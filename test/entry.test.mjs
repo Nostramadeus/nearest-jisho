@@ -57,7 +57,7 @@ test('entry page for a words record: sections in order, every example, kanji, li
   ] };
   const html = entryHtml(d);
   assert.deepEqual(sectionTitles(html), ['Other forms', 'Meanings', 'Sentences with this word (2)', 'Kanji in this word', 'Words that start with 辞書', 'Links']);
-  assert.match(html, /<div class="romaji">jisho<\/div><div class="entry-title"><h2 class="entry-word fu" lang="ja"><ruby>辞書<rt>じしょ<\/rt><\/ruby><\/h2><button type="button" class="star entry-star" aria-pressed="false"/);
+  assert.match(html, /<div class="romaji">jisho <button type="button" class="say" data-say="じしょ" aria-label="Play the reading" title="Play the reading" hidden><svg[^]*?<\/svg><\/button><\/div><div class="entry-title"><h2 class="entry-word fu" lang="ja"><ruby>辞書<rt>じしょ<\/rt><\/ruby><\/h2><button type="button" class="star entry-star" aria-pressed="false"/);
   assert.match(html, /<span class="tag">common<\/span><span class="tag g">N5<\/span>/);
   assert.match(html, /<p lang="ja">辭書<\/p>/);
   for (const ex of ['I look it up in the dictionary.', 'It is a new dictionary.', 'He handed in his resignation.']) assert.ok(html.includes(ex), ex);
@@ -75,7 +75,7 @@ test('entry page for a names record', () => {
   assert.deepEqual(sectionTitles(html), ['Name type', 'Translations', 'Kanji in this word', 'Links']);
   assert.match(html, /<p>surname<\/p>/);
   assert.match(html, /<li>Tanaka<\/li>/);
-  assert.match(html, /<div class="romaji">tanaka<\/div>/);
+  assert.match(html, /<div class="romaji">tanaka <button type="button" class="say" data-say="たなか"[^>]*hidden>/);
   assert.ok(!html.includes('Jisho.org'));
 });
 

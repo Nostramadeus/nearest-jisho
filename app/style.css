@@ -134,6 +134,20 @@ mark { background: none; color: var(--acc); font-weight: 700; }
 .entry { padding: 16px; }
 .entry-head .kana { font-size: 15px; }
 .entry .romaji { font-size: 13px; color: var(--dim); }
+/* SPEC 26.1: romaji on result cards (setting "Romaji on result cards") */
+.card .romaji { font-size: 11px; color: var(--dim); margin-top: 2px; }
+.no-card-romaji .card .romaji { display: none; }
+/* SPEC 26.2: speaker button next to the reading (shown only when a Japanese voice exists) */
+.say { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin-left: 4px;
+  vertical-align: middle; border: 0; border-radius: 50%; background: transparent; color: var(--acc); cursor: pointer; fill: currentColor; }
+.say[hidden] { display: none; }
+/* SPEC 25: pitch accent line; line over the high morae, a drop mark after the accent nucleus, [n] muted */
+.entry .pitch { font-size: 15px; margin-top: 2px; }
+.pitch .pat { white-space: nowrap; }
+.pitch .mo { display: inline-block; padding-top: 2px; border-top: 2px solid transparent; }
+.pitch .mo.hi { border-top-color: currentColor; }
+.pitch .drop { display: inline-block; padding-top: 2px; }
+.pitch .pn { font-size: 12px; color: var(--dim); }
 .entry-title { display: flex; align-items: center; gap: 6px; }
 .entry-word { font-size: 56px; line-height: 1.1; margin: 4px 0 6px; font-weight: 400; overflow-wrap: anywhere; }
 /* SPEC 22: furigana over its own kanji; the taller line keeps a wrapped second line clear of the reading above it */

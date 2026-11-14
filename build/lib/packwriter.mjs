@@ -170,6 +170,7 @@ function u32le(u32) {
 /** Files of one pack as they exist in `dir`, in a fixed order (the order the hash is computed over). */
 export function packFileList(dir, pack) {
   if (pack === 'kanji') return ['kanji.json'];
+  if (pack === 'pitch') return ['pitch.json'];
   if (pack === 'sent') return ['sent.dat', 'sent.off', 'sent.keys.json'];
   const json = [`${pack}.dat`, `${pack}.off`, `${pack}.meta`, `${pack}.keys.json`];
   if (fs.existsSync(path.join(dir, `${pack}.keys.json`))) return json;

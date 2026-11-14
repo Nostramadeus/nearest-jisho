@@ -14,7 +14,7 @@ import {
 } from '../app/datasets.js';
 import { updateBarHtml } from '../app/render.js';
 
-const PACKS = ['words', 'names', 'wikt', 'sent', 'kanji'];
+const PACKS = ['words', 'names', 'wikt', 'sent', 'kanji', 'pitch'];
 const appFile = (name) => readFileSync(fileURLToPath(new URL(`../app/${name}`, import.meta.url)), 'utf8');
 
 function hashedFixture() {

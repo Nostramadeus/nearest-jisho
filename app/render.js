@@ -2,6 +2,12 @@
 import { POS, MISC, FIELD, DIALECT, NAME_TYPE, SLANG_CODES, label } from './labels.js';
 import { entryAddress, entryHash, usuallyKana } from './search/entry.js';
 import { firstGloss } from './favorites.js';
+import { kanaToRomaji } from './search/romaji.js';
+import { pitchHtml } from './search/pitch.js';
+
+const KANA_ONLY = /^[\p{Script=Hiragana}\p{Script=Katakana}ー・]+$/u;
+const SAY_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/>' +
+  '<path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 
 const STAR_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>';
 
@@ -187,10 +193,14 @@ export function cardHtml(hit, gi, ri, opts = {}) {
   const addr = entryAddress(hit.pack, rec);
   const href = entryHash(addr);
   const fu = reading ? furigana(head, reading) : null; // SPEC 22: reading over its own kanji; else the plain line
+  // SPEC 26.1: romaji of the reading (of the headword when it is kana) under the word; a setting hides it via CSS
+  const romaSrc = reading || (KANA_ONLY.test(head || '') ? head : '');
+  const roma = romaSrc ? kanaToRomaji(romaSrc) : '';
   return `<article class="card" data-g="${gi}" data-r="${ri}" data-entry="${esc(href)}">` +
     starHtml(addr, firstGloss(rec), isFav(opts, addr), '', head) +
     `<div class="word">${reading && !fu ? `<div class="kana" lang="ja">${markText(reading, readMark)}</div>` : ''}` +
     `<div class="kanji${fu ? ' fu' : ''}" lang="ja"><a class="hw" href="${esc(href)}">${fu ? rubyHtml(fu, headMark, readMark) : markText(head, headMark)}</a></div>` +
+    `${roma ? `<div class="romaji">${esc(roma)}</div>` : ''}` +
     `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</div>` +
     `<div class="body">${notes}${body}${moreEx}${forms}${link}</div></article>`;
 }
@@ -248,7 +258,8 @@ export function entryHtml(d, opts = {}) {
   const fu = reading ? furigana(head, reading) : null;
   let html = '<article class="entry">' +
     `<header class="entry-head">${reading && !fu ? `<div class="kana" lang="ja">${esc(reading)}</div>` : ''}` +
-    `${d.romaji ? `<div class="romaji">${esc(d.romaji)}</div>` : ''}` +
+    `${d.romaji ? `<div class="romaji">${esc(d.romaji)}${d.reading ? ` <button type="button" class="say" data-say="${esc(d.reading)}" aria-label="Play the reading" title="Play the reading" hidden>${SAY_SVG}</button>` : ''}</div>` : ''}` +
+    `${d.pitch ? `<div class="pitch">${pitchHtml(d.pitch.kana, d.pitch.values)}</div>` : ''}` +
     `<div class="entry-title"><h2 class="entry-word${fu ? ' fu' : ''}" lang="ja">${fu ? rubyHtml(fu, null, null) : esc(head)}</h2>` +
     `${starHtml(entryAddress(pack, rec), firstGloss(rec), isFav(opts, entryAddress(pack, rec)), 'entry-star', head)}</div>` +
     `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</header>`;
@@ -274,6 +285,7 @@ export function entryHtml(d, opts = {}) {
   const base = d.written || head;
   if (d.startsWith.length) html += sec(`Words that start with <span lang="ja">${esc(base)}</span>`, wordRows(d.startsWith));
   if (d.endsWith && d.endsWith.length) html += sec(`Words that end with <span lang="ja">${esc(base)}</span>`, wordRows(d.endsWith));
+  if (d.phrases && d.phrases.length) html += sec(`Phrases with <span lang="ja">${esc(base)}</span>`, wordRows(d.phrases));
   const links = [ext(`https://ja.wikipedia.org/w/index.php?search=${encodeURIComponent(head)}`, `Search Wikipedia for "${esc(head)}"`)];
   if (isWikt && rec.u) links.push(ext(rec.u, rec.src === 'wj' ? 'Open in Japanese Wiktionary' : 'Open in Wiktionary'));
   if (pack === 'words') links.push(ext(`https://jisho.org/search/${encodeURIComponent(head)}`, 'Look up on Jisho.org'));

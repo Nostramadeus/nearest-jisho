@@ -1,6 +1,7 @@
 // Entry page data (SPEC 10.2). Pure: no DOM, no fetch. Works on a PackStore.
 import { kanaToRomaji, toHiragana } from './romaji.js';
 import { prefixRecords, shownHead } from './engine.js';
+import { pitchKey, fittingValues } from './pitch.js';
 
 const KANJI_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3005\u{20000}-\u{3134f}]/u;
 export const hasKanji = (s) => KANJI_RE.test(s || '');
@@ -122,7 +123,19 @@ export const SUFFIX_SCAN_MAX = 2000;
  * Records whose written form (space k) ends with `suffix` and is longer than it (SPEC 17.5): substring scan over the
  * key string, keeping hits at a key end, at most 2,000 scanned hits; ordered by rank, shorter key, record id.
  */
-export function suffixRecords(store, pack, suffix, { ranking = 'fiction', max = 20, skip = new Set() } = {}) {
+export function suffixRecords(store, pack, suffix, opts = {}) {
+  return scanRecords(store, pack, suffix, 'end', opts);
+}
+
+/**
+ * Records whose written form contains `part` somewhere other than its start or its end (SPEC 26.3, "Phrases with"):
+ * same scan, cap and order as suffixRecords().
+ */
+export function middleRecords(store, pack, part, opts = {}) {
+  return scanRecords(store, pack, part, 'middle', opts);
+}
+
+function scanRecords(store, pack, suffix, where, { ranking = 'fiction', max = 20, skip = new Set() } = {}) {
   const ks = store.keySpace(pack, 'k');
   if (!ks || !suffix) return [];
   const str = ks.str, n = suffix.length;
@@ -131,7 +144,9 @@ export function suffixRecords(store, pack, suffix, { ranking = 'fiction', max = 
   for (let pos = str.indexOf(suffix); pos !== -1 && scanned < SUFFIX_SCAN_MAX; pos = str.indexOf(suffix, pos + 1)) {
     scanned++;
     const end = pos + n;
-    if (end !== str.length && str.charCodeAt(end) !== 10) continue; // not at the end of a key
+    const atEnd = end === str.length || str.charCodeAt(end) === 10;
+    if (where === 'end' && !atEnd) continue; // not at the end of a key
+    if (where === 'middle' && (atEnd || pos === 0 || str.charCodeAt(pos - 1) === 10)) continue; // at a start or an end
     const i = ks.indexAt(pos);
     const len = ks.keyLen(i);
     if (len <= n) continue; // the headword itself
@@ -144,6 +159,17 @@ export function suffixRecords(store, pack, suffix, { ranking = 'fiction', max = 
     .sort((a, b) => a.rank - b.rank || a.len - b.len || a.id - b.id)
     .slice(0, max)
     .map((x) => x.id);
+}
+
+/**
+ * Pitch accent of a words record (SPEC 25): { kana: first kana form, values: [accent types] } or null when the pitch
+ * pack has no value for the record's key (never guessed).
+ */
+export function pitchOf(store, rec) {
+  if (typeof store.pitch !== 'function') return null;
+  const kana = (rec.r && rec.r[0]) || '';
+  const values = fittingValues(kana, store.pitch(pitchKey(rec)));
+  return values.length ? { kana, values } : null;
 }
 
 /**
@@ -163,6 +189,8 @@ export function entryData(store, pack, id, { ranking = 'fiction', sentLoading = 
     written,
     startsWith: [],
     endsWith: [],
+    phrases: [],
+    pitch: pack === 'words' ? pitchOf(store, rec) : null,
     sentences: pack === 'names' ? [] : store.has('sent') ? sentencesFor(store, pack, rec) : sentLoading ? null : [],
   };
   // section 5: words that start with the headword (words pack only; not for names or records without kanji)
@@ -180,7 +208,11 @@ export function entryData(store, pack, id, { ranking = 'fiction', sentLoading = 
     // section 17.5: words that END with the headword (the record itself and the start-with rows excluded)
     const skip = new Set(starts.map((x) => x.id));
     if (exclude >= 0) skip.add(exclude);
-    data.endsWith = suffixRecords(store, 'words', written, { ranking, max: 20, skip }).map(row);
+    const ends = suffixRecords(store, 'words', written, { ranking, max: 20, skip });
+    data.endsWith = ends.map(row);
+    // SPEC 26.3: phrases that hold the headword in the middle; rows of the two lists above excluded
+    for (const e of ends) skip.add(e);
+    data.phrases = middleRecords(store, 'words', written, { ranking, max: 20, skip }).map(row);
   }
   return data;
 }

@@ -53,7 +53,7 @@ export async function makePage(store, hash = '') {
     querySelectorAll: () => [],
     createElement: () => new El(''),
     body: new El('body'),
-    documentElement: { dataset: {}, classList: { add() {}, remove() {} } },
+    documentElement: { dataset: {}, classList: { add() {}, remove() {}, toggle() {} } },
     readyState: 'complete',
     execCommand: () => true,
   };

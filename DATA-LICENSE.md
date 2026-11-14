@@ -18,6 +18,7 @@ additional terms each source names.
 | Slang, Japanese definitions (pack `wikt`, `src: "wj"`) | Japanese Wiktionary, extracted by kaikki.org (wiktextract) | CC BY-SA 4.0 (as above) | https://ja.wiktionary.org/ ; https://kaikki.org/jawiktionary/index.html |
 | Fiction and media ranking | jiten.moe frequency list (global) | CC BY-SA 4.0 | https://jiten.moe/frequency-dictionaries |
 | JLPT levels | stephenmk/yomitan-jlpt-vocab | CC BY-SA 4.0 | https://github.com/stephenmk/yomitan-jlpt-vocab |
+| Pitch accent (pack `pitch`, `pitch.json`) | UniDic `unidic-cwj-202512` (NINJAL, The UniDic Consortium), accent type field `aType`, joined to JMdict words | BSD 3-clause (UniDic is triple-licensed GPL 2.0 / LGPL 2.1 / BSD; this project uses the BSD option) | https://clrd.ninjal.ac.jp/unidic/ ; https://clrd.ninjal.ac.jp/unidic_archive/2512/unidic-cwj-202512.zip |
 
 ## Required credits
 
@@ -40,6 +41,10 @@ Corpus, which is in the public domain.
 
 **JLPT levels.** From stephenmk/yomitan-jlpt-vocab (CC BY-SA 4.0). "JLPT data is sourced from Jonathan Waller's
 JLPT Resources page under the terms of the Creative Commons BY license."
+
+**UniDic.** Pitch accent values from UniDic (unidic-cwj-202512, https://clrd.ninjal.ac.jp/unidic/), used under
+the BSD 3-clause licence option. The full BSD licence text (copyright notice, conditions and disclaimer) from the
+UniDic package is stored with the data in `pitch.json` (field `license`).
 
 ## Share-alike
 

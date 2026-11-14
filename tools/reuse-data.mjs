@@ -11,7 +11,7 @@ import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { packHash, packGz } from '../build/lib/packwriter.mjs';
 
-const PACKS = ['words', 'names', 'wikt', 'sent', 'kanji'];
+const PACKS = ['words', 'names', 'wikt', 'sent', 'kanji', 'pitch'];
 
 export async function reuseData({ base, out, fetchFn = fetch, log = () => {} }) {
   const vr = await fetchFn(new URL('version.json', base).href, { cache: 'no-store' });

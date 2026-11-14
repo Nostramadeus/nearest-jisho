@@ -24,6 +24,7 @@ export function packFilesBinary(pack) {
   return out;
 }
 export const KANJI_FILE = 'kanji.json';
+export const PITCH_FILE = 'pitch.json'; // pitch pack (SPEC 25): { source, url, license, a: { key: "accent values" } }
 export const VERSION_FILE = 'version.json';
 
 const td = new TextDecoder();
@@ -188,6 +189,7 @@ export class PackStore {
     this.readFile = readFile;
     this.packs = {};
     this.kanjiData = null;
+    this.pitchData = null;
     this.version = null;
   }
 
@@ -317,4 +319,13 @@ export class PackStore {
     return this.kanjiData;
   }
   kanji(literal) { return this.kanjiData ? this.kanjiData[literal] || null : null; }
+
+  /** Pitch pack (SPEC 25), loaded when the first entry page opens. */
+  async loadPitch() {
+    const buf = await this.readFile(PITCH_FILE);
+    this.pitchData = JSON.parse(td.decode(u8(buf))).a || {};
+    return this.pitchData;
+  }
+  /** Accent value string ("2", "0,3") of a pitch key (search/pitch.js pitchKey), '' when there is none. */
+  pitch(key) { return this.pitchData && key ? this.pitchData[key] || '' : ''; }
 }

@@ -1,10 +1,10 @@
 // Data packs in use and the per-pack update check (SPEC 6, replaced in part by SPEC 14.3).
 // No DOM. Cache Storage and fetch are passed in, so node tests can stub them.
-import { packFiles, KANJI_FILE, VERSION_FILE } from './search/packs.js';
+import { packFiles, KANJI_FILE, PITCH_FILE, VERSION_FILE } from './search/packs.js';
 
 export const DATA_BASE = './data/';
 export const REMOTE_BASE = 'https://nostramadeus.github.io/nearest-jisho/data/';
-export const DATA_PACKS = ['words', 'kanji', 'wikt', 'sent', 'names']; // version.json "packs" keys, load order
+export const DATA_PACKS = ['words', 'kanji', 'wikt', 'sent', 'names', 'pitch']; // version.json "packs" keys, load order
 export const PACK_PREFIX = 'nj-pack-';           // one Cache Storage cache per downloaded pack copy
 export const OLD_SET_PREFIX = 'nj-data-';        // whole data sets of the first update scheme (SPEC 6), superseded
 export const BUNDLED_CACHE = 'nj-bundled-data';  // filled by sw.js for ./data/ requests
@@ -13,7 +13,7 @@ export const COMPLETE = 'complete.json';         // marker written last; a copy 
 /** File names of a pack: the version.json "files" list (SPEC 14.2), else the fixed layout. */
 export function filesOf(pack, entry) {
   if (entry && Array.isArray(entry.files) && entry.files.length) return entry.files;
-  return pack === 'kanji' ? [KANJI_FILE] : packFiles(pack);
+  return pack === 'kanji' ? [KANJI_FILE] : pack === 'pitch' ? [PITCH_FILE] : packFiles(pack);
 }
 
 /** Identity of a pack copy: its hash; a copy without a hash (older build) is identified by its build date. */

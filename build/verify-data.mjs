@@ -129,6 +129,23 @@ if (fs.existsSync(path.join(OUT, 'sent.dat'))) {
   fail('sent: missing');
 }
 
+// pitch pack (SPEC 25): the CI check that the accent field was read from the right UniDic column
+if (fs.existsSync(path.join(OUT, 'pitch.json'))) {
+  try {
+    const o = JSON.parse(fs.readFileSync(path.join(OUT, 'pitch.json'), 'utf8'));
+    const a = o.a || {};
+    const n = Object.keys(a).length;
+    n > 10000 ? ok(`pitch: ${n} keys from ${o.source}`) : fail(`pitch: only ${n} keys`);
+    for (const [k, want] of [['橋\tはし', '2'], ['箸\tはし', '1']]) {
+      a[k] === want ? ok(`pitch ${k.replace('\t', '/')} = ${a[k]}`) : fail(`pitch ${k.replace('\t', '/')} = ${JSON.stringify(a[k])}, expected ${want}`);
+    }
+    for (const k of ['端\tはし', '雨\tあめ', '飴\tあめ', '東京\tとうきょう']) ok(`pitch ${k.replace('\t', '/')} = ${JSON.stringify(a[k])} (shown, not checked)`);
+    /BSD|Redistribution/i.test(o.license || '') ? ok('pitch: BSD licence text included') : fail('pitch: no BSD licence text');
+  } catch (e) { fail(`pitch.json: ${e.message}`); }
+} else {
+  fail('pitch: missing');
+}
+
 for (const f of ['kanji.json', 'version.json']) {
   try {
     const o = JSON.parse(fs.readFileSync(path.join(OUT, f), 'utf8'));
@@ -140,7 +157,7 @@ for (const f of ['kanji.json', 'version.json']) {
 // SPEC 14.2: every pack in version.json lists its files, they exist, and the hash matches
 try {
   const v = JSON.parse(fs.readFileSync(path.join(OUT, 'version.json'), 'utf8'));
-  for (const pack of ['words', 'names', 'wikt', 'sent', 'kanji']) {
+  for (const pack of ['words', 'names', 'wikt', 'sent', 'kanji', 'pitch']) {
     const e = v.packs && v.packs[pack];
     if (!e) { fail(`version.json: pack ${pack} not listed`); continue; }
     if (!Array.isArray(e.files) || !e.files.length) { fail(`version.json: ${pack} has no "files"`); continue; }

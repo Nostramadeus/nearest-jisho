@@ -39,6 +39,8 @@ It never hides what you asked for: exact matches always come first, and near mat
 - **219,000 words, 743,000 names, 10,000 kanji**, plus slang, internet words and sound-effect words with clear labels.
 - **110,000 example sentences.** Open a word to see up to 25 real sentences, with the word highlighted in the form it takes.
 - **Favorites.** Star a word, copy your list into Anki or a spreadsheet.
+- **Pitch accent and audio.** The word page shows the pitch accent from UniDic (はꜜし [1]) and reads the word aloud with your device's Japanese voice.
+- **Romaji everywhere.** Every result shows its romaji (can be turned off), and each word page lists phrases that contain the word.
 
 All data comes from free, open sources (JMdict, JMnedict, KANJIDIC2, Wiktionary, Tatoeba, jiten.moe). See [DATA-LICENSE.md](DATA-LICENSE.md).
 
@@ -107,7 +109,7 @@ node --test test/                     # unit and engine tests on a small hand-ma
 
 - Code: MIT, see `LICENSE`.
 - Dictionary data: JMdict, JMnedict and KANJIDIC2 (© EDRDG, CC BY-SA 4.0), Wiktionary (CC BY-SA 4.0),
-  jiten.moe (CC BY-SA 4.0), Tatoeba (CC BY 2.0 FR), JLPT lists (CC BY-SA 4.0). Details and required credits are in
+  jiten.moe (CC BY-SA 4.0), Tatoeba (CC BY 2.0 FR), JLPT lists (CC BY-SA 4.0), UniDic pitch accent (BSD). Details and required credits are in
   `DATA-LICENSE.md` and on the app's "About and licences" page.
 
 This site uses the JMdict/EDICT and KANJIDIC dictionary files. These files are the property of the Electronic

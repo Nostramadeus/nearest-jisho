@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Data build entry (SPEC sections 2 and 3).
-//   node build/build-data.mjs [--only words,names,kanji,wikt,sent]
+//   node build/build-data.mjs [--only words,names,kanji,wikt,sent,pitch]
 //   node build/build-data.mjs --rehash      (only adds per-pack files + hash to version.json, SPEC 14.2)
 // Downloads the sources, writes the packs into app/data/, writes app/data/version.json.
 // Node stdlib only. Temporary files live in build/.cache/ and are deleted when their pack is written.
@@ -11,9 +11,10 @@ import { ROOT, OUT, log, mb } from './lib/util.mjs';
 import { latestRelease, loadPriority, loadJiten, loadJlpt } from './lib/sources.mjs';
 import { buildWords, buildNames, buildKanji, buildWikt } from './lib/packs.mjs';
 import { buildSent } from './lib/sent.mjs';
+import { buildPitch } from './lib/pitch.mjs';
 import { addPackHashes } from './lib/packwriter.mjs';
 
-const ALL = ['words', 'names', 'kanji', 'wikt', 'sent'];
+const ALL = ['words', 'names', 'kanji', 'wikt', 'sent', 'pitch']; // pitch reads the words pack (SPEC 25)
 
 function parseArgs(argv) {
   let only = ALL;
@@ -99,6 +100,12 @@ async function main() {
       log(`WARNING: sent pack SKIPPED (${e.message}). The other packs are unaffected.`);
       report.packs.sent = { skipped: e.message };
     }
+  }
+  if (only.includes('pitch')) {
+    // SPEC 25: UniDic pitch accent, joined to the words pack in app/data. CI only (about 660 MB download).
+    const r = await buildPitch({ toHiragana: romaji.toHiragana });
+    writeVersion(release, { pitch: { n: r.n, bytes: r.bytes } });
+    report.packs.pitch = r;
   }
   writeHashes();
   fs.mkdirSync(path.join(ROOT, 'build', '.cache'), { recursive: true });

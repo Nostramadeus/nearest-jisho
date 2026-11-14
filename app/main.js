@@ -250,6 +250,7 @@ function onEntry(m) {
   entryEl.innerHTML = m.data
     ? entryHtml(m.data, renderOpts())
     : `<p class="empty">This entry was not found in the current dictionary data.</p>`;
+  showSayButtons();
 }
 
 function showSearchView() {
@@ -357,6 +358,8 @@ favViewEl.addEventListener('click', (e) => {
 entryEl.addEventListener('click', (e) => {
   const star = e.target.closest('button.star');
   if (star) { onStar(star); return; }
+  const say = e.target.closest('button.say');
+  if (say) { if (tts.speak) tts.speak(say.dataset.say); return; }
   const a = e.target.closest('a[href^="#w="]');
   if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
   e.preventDefault();
@@ -405,6 +408,67 @@ for (const r of document.querySelectorAll('input[name="theme"]')) {
   });
 }
 applyTheme();
+
+// "Romaji on result cards" (SPEC 26.1), default on; a class on <html> hides the line, no re-render needed
+S.cardRomaji = store.get('nj-card-romaji', true) !== false;
+function applyCardRomaji() { document.documentElement.classList.toggle('no-card-romaji', !S.cardRomaji); }
+{
+  const box = $('cardromaji');
+  if (box) {
+    box.checked = S.cardRomaji;
+    box.addEventListener('change', () => { S.cardRomaji = box.checked; store.set('nj-card-romaji', S.cardRomaji); applyCardRomaji(); });
+  }
+}
+applyCardRomaji();
+
+// ---------- read the reading aloud (SPEC 26.2) ----------
+// Android app: native TTS plugin (@capacitor-community/text-to-speech); web and desktop: speechSynthesis with the
+// first voice whose lang starts with "ja". No Japanese voice -> the button stays hidden. Kana only, never kanji.
+const tts = { speak: null };
+function capTts() {
+  const C = window.Capacitor;
+  if (!C) return null;
+  const native = (typeof C.isNativePlatform === 'function' && C.isNativePlatform()) ||
+    (typeof C.getPlatform === 'function' && C.getPlatform() !== 'web');
+  if (!native) return null;
+  if (typeof C.isPluginAvailable === 'function' && !C.isPluginAvailable('TextToSpeech')) return null;
+  const P = C.Plugins && C.Plugins.TextToSpeech;
+  if (!(P && typeof P.speak === 'function') && typeof C.nativePromise !== 'function') return null;
+  return (method, opts) => (P && typeof P[method] === 'function' ? P[method](opts) : C.nativePromise('TextToSpeech', method, opts));
+}
+async function findVoice() {
+  const cap = capTts();
+  if (cap) {
+    try {
+      const r = await cap('isLanguageSupported', { lang: 'ja-JP' });
+      if (r && r.supported) return (text) => { Promise.resolve(cap('speak', { text, lang: 'ja-JP', rate: 0.9 })).catch(() => {}); };
+    } catch { /* no Japanese voice */ }
+    return null;
+  }
+  const ss = window.speechSynthesis;
+  if (!ss || typeof SpeechSynthesisUtterance === 'undefined') return null;
+  const pick = () => ss.getVoices().find((v) => /^ja/i.test(v.lang || ''));
+  let voice = pick();
+  if (!voice) {
+    await new Promise((res) => {
+      if (typeof ss.addEventListener === 'function') ss.addEventListener('voiceschanged', res, { once: true });
+      setTimeout(res, 3000);
+    });
+    voice = pick();
+  }
+  if (!voice) return null;
+  return (text) => {
+    ss.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.voice = voice; u.lang = voice.lang; u.rate = 0.9;
+    ss.speak(u);
+  };
+}
+function showSayButtons() {
+  if (!tts.speak) return;
+  for (const b of entryEl.querySelectorAll('button.say')) b.hidden = false;
+}
+findVoice().then((f) => { tts.speak = f; showSayButtons(); }).catch(() => {});
 
 // "Download dictionary updates" (SPEC 14.3, 15); does not limit app-code updates (sw.js)
 // Default "Ask each time"; a stored always / wifi / never from before is kept.

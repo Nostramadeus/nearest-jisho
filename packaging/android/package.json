@@ -5,6 +5,7 @@
   "description": "Android wrapper for Nearest Jisho (Capacitor). Built on GitHub Actions only.",
   "license": "MIT",
   "dependencies": {
+    "@capacitor-community/text-to-speech": "8.0.2",
     "@capacitor/android": "8.6.0",
     "@capacitor/core": "8.6.0"
   },

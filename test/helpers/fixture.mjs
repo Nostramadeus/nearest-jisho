@@ -105,6 +105,7 @@ export const WORDS = [
   [{ k: ['中学校'], r: ['ちゅうがっこう'], c: 1, s: [N(['n'], ['junior high school'])] }, 3000, 3000], // 41
   [{ k: ['若草'], r: ['わかくさ'], s: [N(['n'], ['young grass'])] }, 9000, 9000],          // 42
   [{ k: ['草草'], r: ['くさくさ'], s: [N(['adj-t'], ['gloomy'])] }, 20000, 20000],          // 43: starts AND ends with 草
+  [{ k: ['小学校区'], r: ['しょうがっこうく'], s: [N(['n'], ['elementary school district'])] }, 30000, 30000], // 44: 学校 in the middle (real JMdict word)
 ];
 
 export const NAMES = [
@@ -167,6 +168,9 @@ export function writeSentPack(dir, sentences = SENTENCES, keys = SENT_KEYS) {
   writeFileSync(join(dir, 'sent.keys.json'), JSON.stringify({ h: { keys: sorted.join('\n'), ptr, ids, forms }, formList }));
 }
 
+// Pitch pack (SPEC 25): key "<first kanji form>\t<first kana form>" or the kana form of a kana-only record.
+export const PITCH = { '辞書\tじしょ': '1', '学校\tがっこう': '0' };
+
 /** Write all fixture packs into a fresh temp folder. Returns { dir, cleanup }. */
 export function makeFixture(layout = 'json') {
   const dir = mkdtempSync(join(tmpdir(), 'nj-fixture-'));
@@ -183,6 +187,8 @@ export function makeFixture(layout = 'json') {
     packs[name] = { n: rows.length, bytes: bytes(files) };
   }
   writeSentPack(dir);
+  writeFileSync(join(dir, 'pitch.json'), JSON.stringify({ source: 'fixture', license: 'BSD fixture', a: PITCH }));
+  packs.pitch = { n: Object.keys(PITCH).length, bytes: bytes(['pitch.json']) };
   packs.sent = { n: SENTENCES.length, bytes: bytes(['sent.dat', 'sent.off', 'sent.keys.json']) };
   writeFileSync(join(dir, 'version.json'), JSON.stringify({ built: '2026-11-13', jmdict: 'fixture', packs }));
   return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };

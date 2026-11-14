@@ -746,3 +746,73 @@ A second press while a check runs is ignored.
   with a search-only spelling are still found.
 - A record whose kana forms are all search-only keeps them all in `r`.
 - Count on 2026-11-14: 20,849 search-only spellings hidden in 219,040 word records.
+
+## 25. Pitch accent (added 2026-11-14, board row pitch-accent)
+
+### 25.1 Source
+- UniDic, contemporary written Japanese (`unidic-cwj`), newest release from NINJAL: `unidic-cwj-202512`,
+  https://clrd.ninjal.ac.jp/unidic_archive/2512/unidic-cwj-202512.zip (light package, about 660 MB, compiled `sys.dic`).
+  Used under the BSD 3-clause option of its triple licence (GPL 2.0 / LGPL 2.1 / BSD). Kanjium is NOT used (its origin
+  is disputed).
+- Downloaded ONLY inside the CI data job (`build/lib/pitch.mjs`). Never downloaded or built on a local machine.
+- `unzip` (system tool, one child process) streams one member of the zip: `lex.csv` when the zip has it, otherwise
+  `sys.dic`, whose feature-string section (after the 72-byte header, the double array and the token table) holds one
+  UniDic feature line per entry. The BSD licence file of the zip is stored in `pitch.json` ("license"); no zip
+  without one is used (the build fails).
+- Feature fields used (UniDic 3.x / 2023+ layout, 0-based): orth 8 (written form), kana 20 (reading, katakana),
+  aType 24 (accent type, e.g. `2` or `0,3`; `*` = no data). Kana are converted to hiragana.
+
+### 25.2 Join to the words pack
+- Kanji records: key `<first kanji form>\t<first kana form in hiragana>`. Value = the accent values of the UniDic
+  entries whose (orth, kana) equals (kanji form, first kana form) exactly; the record's kanji forms are tried in order
+  and the first one with an exact pair wins (forms of the same JMdict entry, same reading). Values of several UniDic
+  rows with the same pair are merged (first seen order, duplicates removed).
+- Kana-only records: key = the first kana form in hiragana. Used only when every UniDic entry with that kana has the
+  same accent set (はし: 箸 1, 橋 2, 端 0 -> no pitch for a kana-only はし record).
+- No match = no pitch. Never guessed, never another reading's accent. Values larger than the mora count of the
+  reading are dropped.
+
+### 25.3 Pack `pitch`
+- One file `app/data/pitch.json`: `{ "source": "unidic-cwj-202512", "url": ..., "license": "<BSD text>", "a": { key: "2" | "0,3" } }`.
+- Listed in `version.json` with `files`, `hash`, `gz` like every pack (SPEC 14.2); app updates download it alone when
+  only its hash changed. `tools/reuse-data.mjs` and `build/verify-data.mjs` require it.
+- The worker loads it when the first entry page opens (not at start); a failed load only hides the line.
+- CI check (`build/verify-data.mjs`, runs on the rebuild and the reuse path): 橋/はし must be 2 and 箸/はし must be 1,
+  more than 10,000 keys, BSD text present.
+
+### 25.4 Display (entry page only, section 1, the line after the romaji)
+- The first kana form, high morae with a line over them (CSS `border-top`), `ꜜ` after the accent-nucleus mora, then
+  `[n]` in muted grey. Several values: one pattern per value, comma-separated.
+- Morae: small ゃゅょぁぃぅぇぉゎ (and katakana ャュョァィゥェォヮ) join the mora before them; ー, っ and ん are morae of
+  their own.
+- Pattern for type n: n=0 -> mora 1 low, the rest high, no ꜜ; n=1 -> mora 1 high, the rest low;
+  n>=2 -> mora 1 low, morae 2..n high, the rest low.
+- Code: `app/search/pitch.js` (pure; also used by the build), `pitchOf()` in `app/search/entry.js`, CSS `.pitch`.
+
+## 26. Entry extras (added 2026-11-14, board row entry-extras)
+
+### 26.1 Romaji on result cards
+- Every result card shows `kanaToRomaji` of its reading (of the headword when the headword is kana) as a small muted
+  line (11 px) at the bottom of the word block, under the headword and its furigana.
+- Settings: fieldset "Result cards", checkbox "Romaji on result cards", default ON, stored as `nj-card-romaji`.
+  Off adds the class `no-card-romaji` to `<html>`, which hides the line (no re-render).
+
+### 26.2 Speaker button (entry page only)
+- A speaker button at the end of the romaji line of the entry header (directly under the reading; with furigana the
+  reading sits over the headword). It speaks the first kana form, never a kanji form.
+- Android app: native TTS via `@capacitor-community/text-to-speech` 8.0.2 (pinned, Capacitor 8), `lang: 'ja-JP'`,
+  `rate: 0.9`; shown only when `isLanguageSupported({ lang: 'ja-JP' })` says supported.
+- Web and desktop: `speechSynthesis` with the first voice whose `lang` starts with `ja`, rate 0.9 (waits up to 3 s for
+  `voiceschanged`).
+- No Japanese voice: the button stays hidden (it is rendered `hidden`; `main.js` unhides it once a voice is found).
+- No network calls, no recordings, no new data.
+
+### 26.3 Phrases with the headword
+- No tabs (SPEC 10.2: everything visible without clicks). One section "Phrases with <headword>" after
+  "Words that end with": up to 20 words-pack records whose written form contains the headword somewhere other than its
+  start or its end; records listed under "start with" or "end with" (and the record itself) are excluded.
+- Same row format, same omission rules (no names, no kana-only headwords, omitted when empty), same substring scan
+  over the `k` key string with the 2,000 scanned-hit cap of 17.5, ordered by the usual rank.
+- Real data 2026-11-14: 気 -> 一気に, 人気者, お気に入り ...; 学校 -> 小学校区, 中学校区 ...; 気をつける is a
+  "start with" row, not a phrase.
+- Code: `middleRecords()` in `app/search/entry.js`.
