@@ -117,6 +117,8 @@ const SLANG = new Set(['sl', 'net-sl', 'm-sl', 'col', 'vulg']);
 const firstResult = (res) => res.groups[0]?.results[0];
 const groupOf = (res, id) => res.groups.find((g) => g.id === id);
 const ACCEPT = [
+  ['地団駄', 'fiction', (r) => r.groups[0].id === 'wikt' && head(firstResult(r)) === '地団駄', '地団駄 (Wiktionary, exact) above 地団駄を踏む'],
+  ['じだんだ', 'fiction', (r) => r.groups[0].id === 'wikt' && head(firstResult(r)) === '地団駄', '地団駄 (Wiktionary, exact) first'],
   ['jihso', 'fiction', (r) => head(firstResult(r)) === '辞書' && r.didYouMean?.key === 'jisho' && r.didYouMean?.reason === 'letters swapped',
     '辞書 first, did-you-mean "jisho", reason "letters swapped"'],
   ['tensia', 'fiction', (r) => head(firstResult(r)) === '天才' && r.didYouMean?.key === 'tensai',

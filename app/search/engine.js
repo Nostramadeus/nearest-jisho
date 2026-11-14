@@ -889,6 +889,13 @@ export function search(store, query, opts = {}) {
     // English and "Japanese words" swap per SPEC 4.3; wikt and names follow (open question Q2)
     order = enFirst ? [gEn, gWords, gWikt, gNames] : [gWords, gEn, gWikt, gNames];
   }
+  // Ruling 2026-11-14 (SPEC 4.3): the wikt group goes directly above "Japanese words" when it has a tier-0 hit and
+  // "Japanese words" has no tier-0 or tier-1 hit (地団駄: JMdict only holds 地団駄を踏む, the word itself is a
+  // Wiktionary record). Tier 1 counts so that sensee keeps 先生 above the Wiktionary record せんせー.
+  if (gWikt.t0 && !gWords.exact) {
+    order = order.filter((g) => g !== gWikt);
+    order.splice(order.indexOf(gWords), 0, gWikt);
+  }
   out.groups = order.filter((g) => g.results.length);
   // SPEC 21.2: suggestion chips
   out.typed = typed;

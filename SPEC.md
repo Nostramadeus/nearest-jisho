@@ -141,6 +141,10 @@ Map fold(key) -> key indexes for space `r` at load time (lazily, in the worker).
   English hit AND the romaji reading search has no tier-0 hit; if both have tier-0 hits, the group whose best
   result has the lower rank (per `opts.ranking`) goes first; otherwise Japanese group first.
   Group titles: "Japanese words", "English meanings", "Names", "Slang and Wiktionary".
+- Ruling 2026-11-14 (all query kinds): when "Slang and Wiktionary" has a tier-0 (exact) hit and "Japanese words"
+  has no tier-0 or tier-1 hit, "Slang and Wiktionary" is placed directly above "Japanese words". Case: 地団駄
+  (じだんだ). JMdict holds only 地団駄を踏む and 地団駄踏む; the word itself exists only as a Wiktionary record and
+  was shown below them. Tier 1 blocks the move so that `sensee` keeps 先生 above the Wiktionary record せんせー.
 - Pack order inside the Japanese side: words results, then wikt results (separate group), then names (separate group,
   max 10 shown before "show more"). Names run tiers 0-2 always; tier 3 for names only when words+wikt returned
   fewer than 5 results in total.
