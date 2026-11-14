@@ -265,7 +265,7 @@ export function entryHtml(d, opts = {}) {
     `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</header>`;
   const sec = (title, body) => `<section class="entry-sec"><h3>${title}</h3>${body}</section>`;
   if (!isWikt) {
-    const others = [...(rec.k || []), ...(rec.r || [])].filter((f) => f !== head && f !== reading);
+    const others = [...(rec.k || []), ...(d.readings || rec.r || [])].filter((f) => f !== head && f !== reading);
     if (others.length) html += sec('Other forms', `<p lang="ja">${esc(others.join('、'))}</p>`);
   }
   if (isName) {

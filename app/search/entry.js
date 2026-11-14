@@ -1,7 +1,7 @@
 // Entry page data (SPEC 10.2). Pure: no DOM, no fetch. Works on a PackStore.
 import { kanaToRomaji, toHiragana } from './romaji.js';
 import { prefixRecords, shownHead } from './engine.js';
-import { pitchKey, fittingValues } from './pitch.js';
+import { pitchKey, fittingValues, readingsByPriority } from './pitch.js';
 
 const KANJI_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3005\u{20000}-\u{3134f}]/u;
 export const hasKanji = (s) => KANJI_RE.test(s || '');
@@ -167,7 +167,7 @@ function scanRecords(store, pack, suffix, where, { ranking = 'fiction', max = 20
  */
 export function pitchOf(store, rec) {
   if (typeof store.pitch !== 'function') return null;
-  const kana = (rec.r && rec.r[0]) || '';
+  const kana = readingsByPriority(rec)[0] || '';
   const values = fittingValues(kana, store.pitch(pitchKey(rec)));
   return values.length ? { kana, values } : null;
 }
@@ -181,9 +181,11 @@ export function entryData(store, pack, id, { ranking = 'fiction', sentLoading = 
   // SPEC 19.2: uk words show their kana form; the written form still names the kanji blocks and the start / end lists
   const written = (rec.k && rec.k[0]) || (rec.r && rec.r[0]) || '';
   const head = shownHead(rec);
-  const reading = (rec.r && rec.r[0]) || '';
+  // SPEC 27.2: readings with a JMdict priority tag are listed first (the address keeps rec.r[0])
+  const readings = readingsByPriority(rec);
+  const reading = readings[0] || '';
   const data = {
-    pack, rec, head, reading,
+    pack, rec, head, reading, readings,
     romaji: reading ? kanaToRomaji(reading) : '',
     kanji: kanjiBlocks(store, written),
     written,

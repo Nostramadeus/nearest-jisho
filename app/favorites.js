@@ -6,6 +6,21 @@ export const FAV_KEY = 'nj.favorites';
 const same = (a, b) => a.w === b.w && a.r === b.r && a.p === b.p;
 
 /** First gloss (words, Wiktionary) or first translation (names) of a record. */
+// ---------- SPEC 27.3: searches with no results (device only) ----------
+export const MISSED_KEY = 'nj-missed';
+export const MISSED_MAX = 100;
+/** New list with q on top (date YYYY-MM-DD, UTC); an older copy of the same query is removed; at most 100. */
+export function addMissedTo(list, q, date) {
+  q = String(q || '').trim();
+  const old = Array.isArray(list) ? list.filter((x) => x && typeof x.q === 'string') : [];
+  if (!q) return old.slice(0, MISSED_MAX);
+  return [{ q, d: date }, ...old.filter((x) => x.q !== q)].slice(0, MISSED_MAX);
+}
+/** Copy text: one line per search, "date<TAB>query", newest first. */
+export function missedText(list) {
+  return (list || []).map((x) => `${x.d}\t${x.q}`).join('\n');
+}
+
 export function firstGloss(rec) {
   if (rec && rec.s && rec.s[0] && rec.s[0].g && rec.s[0].g.length) return rec.s[0].g[0];
   if (rec && rec.g && rec.g.length) return rec.g[0];

@@ -769,8 +769,12 @@ A second press while a check runs is ignored.
   rows with the same pair are merged (first seen order, duplicates removed).
 - Kana-only records: key = the first kana form in hiragana. Used only when every UniDic entry with that kana has the
   same accent set (はし: 箸 1, 橋 2, 端 0 -> no pitch for a kana-only はし record).
+- UniDic rows with part of speech 2 = 固有名詞 (proper nouns: surnames, place names) are skipped: the first CI build
+  gave 橋/はし = "1,2" because a proper-noun row of the same pair carried 1.
 - No match = no pitch. Never guessed, never another reading's accent. Values larger than the mora count of the
   reading are dropped.
+- "First kana form" here and in 25.4 = the first of the record's kana forms after SPEC 27.2 ordering (readings with
+  a priority tag first).
 
 ### 25.3 Pack `pitch`
 - One file `app/data/pitch.json`: `{ "source": "unidic-cwj-202512", "url": ..., "license": "<BSD text>", "a": { key: "2" | "0,3" } }`.
@@ -816,3 +820,46 @@ A second press while a check runs is ignored.
 - Real data 2026-11-14: 気 -> 一気に, 人気者, お気に入り ...; 学校 -> 小学校区, 中学校区 ...; 気をつける is a
   "start with" row, not a phrase.
 - Code: `middleRecords()` in `app/search/entry.js`.
+
+## 27. Typo round 3, parts 2-4 (added 2026-11-14, board row typo-round-3; owner rulings 2026-11-14)
+
+Part 1 of the round (typos inside a half-typed word, design/typo-study.md open question 5) is NOT built: ruled out
+by the owner.
+
+### 27.1 Wrong kanji with the same reading (design/typo-study.md 2.13, open question 6)
+- Trigger: the query contains kanji (query kind KANJI) AND the whole query (NFKC) is not a key of space `k` of the
+  words pack.
+- One substitution at a time: for each kanji position, the kanji that share an on or kun reading with it in
+  `kanji.json` (on readings and kun readings in hiragana, okurigana dot and dashes removed: か.く -> かく), most
+  frequent first (KANJIDIC `f`, unknown last, then code point), at most 30 per position.
+- A swapped form is kept only when it is a key of space `k` AND a shown written form (`rec.k`, not `rec.h`) of a
+  words record. Each form takes the best rank of its records; forms ordered by that rank (usual commonness).
+- At most 3 forms are shown as chips in the suggestion bar (SPEC 21), label "Same reading, other kanji"; they replace
+  the bar's other chips for that query and are never mixed into the results. A tap searches the chip text.
+- Example (real data 2026-11-14): 講議 -> 抗議, 講義, 区議. 感違い -> 間違い only: 勘 (the intended kanji) is not among
+  the 30 most frequent kanji read カン. Known limit of the 30 cap, accepted.
+- Look-alike kanji (未/末): NOT built. The only table found was Yencken's stroke edit distance / similarity matrices,
+  reported as CC BY 3.0 by the R package kanjistat (GPL 3, which also mixes in Kanjium and KanjiVG data); the licence
+  was not confirmed at the original source, so it is not redistributed.
+- Code: `kanjiSlipChips()`, `sameReadingKanji()` in `app/search/engine.js`.
+
+### 27.2 Common reading ranks higher (design/typo-study.md 4.2 e)
+- Data: `build/lib/sources.mjs` reads, from JMdict_e.gz, every kana form (`reb`) that carries a `re_pri` tag (any
+  value). `build/lib/packs.mjs` writes `rec.rp` = indexes into `rec.r` of the shown kana forms with re_pri (omitted
+  when none). The words pack changes (one download of the words pack for installed apps).
+- Search: in the reading comparator, when two hits have the same tier and the same mistake cost, the hit matched
+  through a kana form with re_pri (its canonical romaji equals the hit key) goes first; then the old order (S, rank).
+  Records without `rp`, names, Wiktionary and written-form hits count as "without".
+- Entry page: readings with re_pri are listed first (`readingsByPriority()` in `app/search/pitch.js`): the reading in
+  the header, the romaji, the speaker, the pitch line and "Other forms" follow that order. The entry address keeps
+  `rec.r[0]` so favorites and links stay valid. Result cards are unchanged.
+- The SPEC 7 acceptance searches must pass unchanged; if one changes, it is reported, not edited.
+
+### 27.3 Searches with no results (design/typo-study.md open question 8)
+- Stored on the device only (localStorage `nj-missed`), never sent: the last 100 searches that returned zero results,
+  each `{ q, d }` (query text, UTC date YYYY-MM-DD), newest first, one copy per query (a repeat moves to the top).
+- A search counts when it is finished (the same moment it enters Recent: stayed 2 seconds, Enter, a chip) and its full
+  result had no group while every pack was loaded.
+- Settings: fieldset "Searches with no results" with the list, "Copy all" (one line per search, `date<TAB>query`) and
+  "Clear".
+- Code: `addMissedTo()`, `missedText()` in `app/favorites.js`; UI in `app/main.js`.

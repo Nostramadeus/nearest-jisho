@@ -45,10 +45,18 @@ export async function loadPriority() {
       const res = await fetchOk(url);
       const src = Readable.fromWeb(res.body).pipe(zlib.createGunzip());
       const out = new Map();
-      let seq = null, nf = Infinity, p1 = false, p2 = false, entries = 0;
+      const rePri = new Map(); // SPEC 27.2: seq -> Set of kana forms (reb) that carry a re_pri tag
+      out.rePri = rePri;
+      let seq = null, nf = Infinity, p1 = false, p2 = false, entries = 0, reb = null;
       for await (const line of lines(src)) {
         let m;
-        if ((m = /<ent_seq>(\d+)<\/ent_seq>/.exec(line))) { seq = Number(m[1]); nf = Infinity; p1 = p2 = false; continue; }
+        if ((m = /<ent_seq>(\d+)<\/ent_seq>/.exec(line))) { seq = Number(m[1]); nf = Infinity; p1 = p2 = false; reb = null; continue; }
+        if ((m = /<reb>([^<]+)<\/reb>/.exec(line))) { reb = m[1]; continue; }
+        if ((m = /<re_pri>[^<]+<\/re_pri>/.exec(line)) && reb !== null && seq !== null) {
+          let set = rePri.get(seq);
+          if (!set) rePri.set(seq, (set = new Set()));
+          set.add(reb);
+        }
         if ((m = /<(?:ke|re)_pri>([^<]+)<\/(?:ke|re)_pri>/.exec(line))) {
           const t = m[1];
           if (/^nf\d\d$/.test(t)) nf = Math.min(nf, Number(t.slice(2)));
@@ -64,7 +72,7 @@ export async function loadPriority() {
         }
       }
       if (entries < 100000) throw new Error(`JMdict_e: only ${entries} entries parsed`);
-      log(`  ${entries} entries, ${out.size} with priority tags`);
+      log(`  ${entries} entries, ${out.size} with priority tags, ${rePri.size} with a reading priority tag (re_pri)`);
       return out;
     } catch (e) {
       if (attempt >= 5) throw e;

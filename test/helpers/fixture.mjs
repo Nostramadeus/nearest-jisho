@@ -106,6 +106,7 @@ export const WORDS = [
   [{ k: ['若草'], r: ['わかくさ'], s: [N(['n'], ['young grass'])] }, 9000, 9000],          // 42
   [{ k: ['草草'], r: ['くさくさ'], s: [N(['adj-t'], ['gloomy'])] }, 20000, 20000],          // 43: starts AND ends with 草
   [{ k: ['小学校区'], r: ['しょうがっこうく'], s: [N(['n'], ['elementary school district'])] }, 30000, 30000], // 44: 学校 in the middle (real JMdict word)
+  [{ k: ['講義'], r: ['こうぎ'], c: 1, s: [N(['n'], ['lecture'])] }, 4000, 4000], // 45: SPEC 27.1 chip for 講議
 ];
 
 export const NAMES = [
@@ -123,6 +124,11 @@ export const WIKT = [
 export const KANJI = {
   '辞': { m: ['resign', 'word', 'term'], on: ['ジ'], kun: ['や.める'], s: 13, g: 4, j: 3, f: 640 },
   '書': { m: ['write'], on: ['ショ'], kun: ['か.く'], s: 10, g: 2, j: 4, f: 169 },
+  // SPEC 27.1 fixture: 講議 is a typo of 講義 (議 and 義 are both read ギ); 抗 shares コウ with 講
+  '講': { m: ['lecture'], on: ['コウ'], s: 17, g: 5, f: 653 },
+  '議': { m: ['deliberation'], on: ['ギ'], s: 20, g: 4, f: 75 },
+  '義': { m: ['righteousness'], on: ['ギ'], s: 13, g: 5, f: 489 },
+  '抗': { m: ['confront'], on: ['コウ'], kun: ['あらが.う'], s: 7, f: 822 },
 };
 
 // Sentence pack (SPEC 13.3): [Japanese, English, Tatoeba id]; keys -> [[sentence index, form], ...] in pack order.

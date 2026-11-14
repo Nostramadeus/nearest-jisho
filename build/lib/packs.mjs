@@ -49,6 +49,7 @@ export async function buildWords({ release, romaji, jiten, jlpt, priority }) {
   const w = new PackWriter(OUT, 'words', ['r', 'k', 'e']);
   const miscCount = Object.fromEntries(MISC_COUNT_TAGS.map((t) => [t, 0]));
   let header = null, examples = 0, withFf = 0, withFn = 0, withJ = 0, hiddenForms = 0;
+  let withRp = 0;
   const searchOnly = (x) => (x.tags || []).some((t) => t === 'sK' || t === 'sk');
   const forRank = []; // per record: [forms, hiragana readings, kanaRowsOk, fn]; ff is computed after all pairs are known
   const allPairs = new Set();
@@ -69,6 +70,12 @@ export async function buildWords({ release, romaji, jiten, jlpt, priority }) {
     if (hid.length) { rec.h = hid; hiddenForms += hid.length; }
     if (e.kanji.some((x) => x.common) || e.kana.some((x) => x.common)) rec.c = 1;
     const seq = Number(e.id);
+    // SPEC 27.2: indexes of the shown kana forms that carry a JMdict reading priority tag (re_pri)
+    const rePri = priority.rePri && priority.rePri.get(seq);
+    if (rePri && rec.r) {
+      const rp = rec.r.map((f, i) => (rePri.has(f) ? i : -1)).filter((i) => i >= 0);
+      if (rp.length) { rec.rp = rp; withRp++; }
+    }
     const j = jlpt.map.get(seq);
     if (j) { rec.j = j; withJ++; }
     const senses = [];
@@ -120,7 +127,7 @@ export async function buildWords({ release, romaji, jiten, jlpt, priority }) {
   });
   const res = w.finish();
   rmCache(file);
-  log(`words: ${res.n} records, ${mb(res.bytes)} (${res.layout}); examples ${examples}; fn known ${withFn}; ff known ${withFf}; jlpt ${withJ}; search-only forms hidden ${hiddenForms}`);
+  log(`words: ${res.n} records, ${mb(res.bytes)} (${res.layout}); examples ${examples}; fn known ${withFn}; ff known ${withFf}; jlpt ${withJ}; search-only forms hidden ${hiddenForms}; readings with re_pri in ${withRp} records`);
   return { ...res, dictDate: header?.dictDate, miscCount, examples, withFn, withFf, withJ };
 }
 

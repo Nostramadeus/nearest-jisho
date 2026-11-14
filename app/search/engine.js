@@ -342,6 +342,20 @@ function promote(store, ctx, hits) {
  * hits of the same block. Inside blocks other than KANA tier 0 and prefix: S, then cost, rank, shorter key, recent,
  * pack, id.
  */
+/**
+ * SPEC 27.2: 1 when a reading hit (space r, words pack) matched through a kana form that carries a JMdict reading
+ * priority tag (rec.rp), else 0. Records without rp (older data, names, wikt) count 0.
+ */
+function priOf(store, h) {
+  if (h.pri !== undefined) return h.pri;
+  let p = 0;
+  if (h.space === 'r' && h.key && h.pack === 'words') {
+    const rec = store.getRecord(h.pack, h.id);
+    if (Array.isArray(rec.rp) && rec.r) p = rec.rp.some((i) => rec.r[i] && kanaToRomaji(rec.r[i]) === h.key) ? 1 : 0;
+  }
+  return (h.pri = p);
+}
+
 function makeReadingComparator(store, ctx) {
   const ranking = ctx.ranking;
   const rankOf = (h) => (h.rank !== undefined ? h.rank : (h.rank = store.rank(h.pack, h.id, ranking)));
@@ -377,6 +391,8 @@ function makeReadingComparator(store, ctx) {
     if (a.pack !== b.pack) return a.pack < b.pack ? -1 : 1;
     return a.id - b.id;
   };
+  // SPEC 27.2: same tier and same mistake cost -> the hit matched through a reading with re_pri goes first
+  const priTie = (a, b) => (a.tier === b.tier && hitCost10(a) === hitCost10(b) ? priOf(store, b) - priOf(store, a) : 0);
   const cmp = (a, b) => {
     const ba = blockOf(a), bb = blockOf(b);
     if (ba !== bb) return ba - bb;
@@ -389,8 +405,12 @@ function makeReadingComparator(store, ctx) {
     }
     if (ba === 1 && !latin) {
       if ((a.sub || 0) !== (b.sub || 0)) return (a.sub || 0) - (b.sub || 0);
+      const pt = priTie(a, b);
+      if (pt) return pt;
       return tail(a, b);
     }
+    const pt = priTie(a, b);
+    if (pt) return pt;
     if (ba === 5) {
       const ca = commonOf(a), cb = commonOf(b);
       if (ca !== cb) return cb - ca;
@@ -909,6 +929,11 @@ export function search(store, query, opts = {}) {
       if (tg) { out.groups.unshift(tg); out.suggestions = []; } // SPEC 21.3: text input gets no chips
     }
   }
+  // SPEC 27.1: kanji query without an exact written-form key: same-reading kanji chips (never mixed into the results)
+  if (kind === 'kanji') {
+    const slips = kanjiSlipChips(store, typed, ctx.ranking);
+    if (slips.length) out.suggestions = slips;
+  }
   // "No exact match" line: only when no group has a tier-0 or tier-1 hit; then the first group (in display order)
   // that carries a did-you-mean (Japanese 4.4 or English 4.9). See PROGRESS-app.md open question Q3.
   const anyExact = out.groups.some((g) => (g.exact !== undefined ? !!g.exact : g.best && g.best.tier <= 1));
@@ -919,6 +944,66 @@ export function search(store, query, opts = {}) {
   }
   for (const g of out.groups) { delete g.best; delete g.exact; delete g.t0; }
   return out;
+}
+
+// ---------- SPEC 27.1: wrong kanji with the same reading (chips only) ----------
+export const KANJI_SLIP_PER_POS = 30;
+export const KANJI_SLIP_MAX = 3;
+export const KANJI_SLIP_LABEL = 'Same reading, other kanji';
+const slipIndex = new WeakMap();
+function kanjiReadingIndex(store) {
+  const data = store.kanjiData;
+  if (!data) return null;
+  let ix = slipIndex.get(data);
+  if (ix) return ix;
+  const byReading = new Map(), readsOf = new Map();
+  const norm = (s) => toHiragana(String(s).replace(/[.\-]/g, '')); // か.く -> かく, -がた -> がた, ショ -> しょ
+  for (const [lit, k] of Object.entries(data)) {
+    const rs = new Set([...(k.on || []), ...(k.kun || [])].map(norm).filter(Boolean));
+    readsOf.set(lit, rs);
+    for (const r of rs) { let a = byReading.get(r); if (!a) byReading.set(r, (a = [])); a.push(lit); }
+  }
+  ix = { byReading, readsOf, freq: (c) => (data[c] && data[c].f) || 999999 };
+  slipIndex.set(data, ix);
+  return ix;
+}
+
+/** Kanji sharing an on or kun reading with `ch` (KANJIDIC), most frequent first, at most 30. */
+export function sameReadingKanji(store, ch, max = KANJI_SLIP_PER_POS) {
+  const ix = kanjiReadingIndex(store);
+  if (!ix || !ix.readsOf.has(ch)) return [];
+  const set = new Set();
+  for (const r of ix.readsOf.get(ch)) for (const c of ix.byReading.get(r)) if (c !== ch) set.add(c);
+  return Array.from(set).sort((a, b) => ix.freq(a) - ix.freq(b) || (a < b ? -1 : a > b ? 1 : 0)).slice(0, max);
+}
+
+/**
+ * SPEC 27.1: a query with kanji and no exact key in space k: swap ONE kanji at a time for a kanji with the same
+ * reading; keep forms that are shown spellings of words records; best rank first; at most 3 chips.
+ */
+export function kanjiSlipChips(store, query, ranking = 'fiction') {
+  const ks = store.keySpace('words', 'k');
+  const q = String(query || '').trim().normalize('NFKC');
+  if (!ks || !q || !KANJI_RE.test(q) || ks.find(q) >= 0) return [];
+  const chars = Array.from(q);
+  const found = new Map(); // form -> { id, rank }
+  chars.forEach((ch, i) => {
+    if (!KANJI_RE.test(ch)) return;
+    for (const c of sameReadingKanji(store, ch)) {
+      const form = chars.slice(0, i).join('') + c + chars.slice(i + 1).join('');
+      const ki = ks.find(form);
+      if (ki < 0) continue;
+      for (const id of ks.idsOf(ki)) {
+        const rec = store.getRecord('words', id);
+        if (!(rec.k || []).some((f) => f.normalize('NFKC') === form)) continue; // shown spellings only (SPEC 24)
+        const rank = store.rank('words', id, ranking);
+        const old = found.get(form);
+        if (!old || rank < old.rank || (rank === old.rank && id < old.id)) found.set(form, { id, rank });
+      }
+    }
+  });
+  return Array.from(found).sort((a, b) => a[1].rank - b[1].rank || a[1].id - b[1].id).slice(0, KANJI_SLIP_MAX)
+    .map(([form, x]) => ({ side: 'ja', key: form, chip: form, head: form, pack: 'words', id: x.id, label: KANJI_SLIP_LABEL, S: null }));
 }
 
 export const SUGGEST_JA_MAX = 5;

@@ -137,6 +137,8 @@ mark { background: none; color: var(--acc); font-weight: 700; }
 /* SPEC 26.1: romaji on result cards (setting "Romaji on result cards") */
 .card .romaji { font-size: 11px; color: var(--dim); margin-top: 2px; }
 .no-card-romaji .card .romaji { display: none; }
+/* SPEC 27.3: searches with no results (Settings) */
+.missed { margin: 4px 0; padding-left: 18px; max-height: 240px; overflow-y: auto; font-size: 13px; }
 /* SPEC 26.2: speaker button next to the reading (shown only when a Japanese voice exists) */
 .say { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin-left: 4px;
   vertical-align: middle; border: 0; border-radius: 50%; background: transparent; color: var(--acc); cursor: pointer; fill: currentColor; }

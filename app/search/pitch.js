@@ -37,11 +37,22 @@ export function highs(n, count) {
 }
 
 /**
- * Key of a words record in the pitch pack: "<first kanji form>\t<first kana form in hiragana>", or the hiragana of
- * the first kana form for a record without a kanji form. '' when the record has no kana form.
+ * Kana forms of a record with the forms that carry a JMdict reading priority tag first (SPEC 27.2, `rec.rp` = their
+ * indexes), the rest after, each part in dictionary order.
+ */
+export function readingsByPriority(rec) {
+  const r = (rec && rec.r) || [];
+  if (!rec || !Array.isArray(rec.rp) || !rec.rp.length) return r.slice();
+  const pri = new Set(rec.rp);
+  return [...r.filter((_, i) => pri.has(i)), ...r.filter((_, i) => !pri.has(i))];
+}
+
+/**
+ * Key of a words record in the pitch pack: "<first kanji form>\t<first shown kana form in hiragana>", or the hiragana
+ * of that kana form for a record without a kanji form (first shown = first of readingsByPriority). '' when the record has no kana form.
  */
 export function pitchKey(rec) {
-  const r = rec && rec.r && rec.r[0];
+  const r = readingsByPriority(rec)[0];
   if (!r) return '';
   return rec.k && rec.k.length ? `${rec.k[0]}\t${toHiragana(r)}` : toHiragana(r);
 }

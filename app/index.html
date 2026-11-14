@@ -66,6 +66,13 @@
       <p id="appcheckrow" hidden><button type="button" id="appchecknow" class="checknow">Check for app updates now</button></p>
       <p id="appcheckresult" class="dim" role="status" hidden></p>
     </fieldset>
+    <fieldset>
+      <legend>Searches with no results</legend>
+      <p class="dim">The last 100 searches that found nothing, newest first. Stored on this device only, never sent.</p>
+      <ul id="missedlist" class="missed"></ul>
+      <p><button type="button" id="missedcopy" class="checknow">Copy all</button>
+        <button type="button" id="missedclear" class="checknow">Clear</button> <span id="missedmsg" class="dim" role="status"></span></p>
+    </fieldset>
     <p class="dim">Dictionary data: <span id="built">loading</span></p>
     <p class="dim">App version: <span id="appversion">checking</span></p>
     <p class="dim">Offline cache: <span id="offline">checking</span></p>

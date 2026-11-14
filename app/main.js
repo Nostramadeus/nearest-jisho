@@ -1,6 +1,6 @@
 // UI (SPEC 5, 10, 11, 12). Talks to worker.js; renders Look A cards, the entry page and the Favorites view.
 import { esc, groupsHtml, entryHtml, favoritesHtml, updateBarHtml, suggestionBarHtml, scrollTargetY } from './render.js';
-import { createFavorites, favoritesText } from './favorites.js';
+import { createFavorites, favoritesText, addMissedTo, missedText, MISSED_KEY } from './favorites.js';
 import {
   WIFI_UNKNOWN_NOTE, wifiNoteShown, loadUpdateChoice, shouldShowOffer, checkResultText, UPDATE_DONE_TEXT, UPDATE_FAILED_TEXT,
 } from './datasets.js';
@@ -326,7 +326,13 @@ function onStar(btn) {
 
 async function copyFavorites(btn) {
   const list = fav.list();
-  const text = favoritesText(list);
+  const ok = await copyText(favoritesText(list));
+  const out = btn.parentElement.querySelector('.copied');
+  if (out) out.textContent = ok ? `Copied ${list.length} lines` : 'Could not copy: the clipboard is blocked.';
+}
+
+/** Clipboard write with the textarea fallback; true when it worked. */
+async function copyText(text) {
   let ok = false;
   try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); ok = true; } } catch { ok = false; }
   if (!ok) {
@@ -340,8 +346,7 @@ async function copyFavorites(btn) {
     try { ok = document.execCommand('copy'); } catch { ok = false; }
     document.body.removeChild(ta);
   }
-  const out = btn.parentElement.querySelector('.copied');
-  if (out) out.textContent = ok ? `Copied ${list.length} lines` : 'Could not copy: the clipboard is blocked.';
+  return ok;
 }
 
 favViewEl.addEventListener('click', (e) => {
@@ -370,6 +375,7 @@ entryEl.addEventListener('click', (e) => {
 function addRecent(q) {
   q = q.trim();
   if (!q) return;
+  if (S.lastEmpty === q) addMissed(q); // SPEC 27.3: a finished search that found nothing
   S.recent = [q, ...S.recent.filter((x) => x !== q)].slice(0, 30);
   store.set('nj-recent', S.recent);
 }
@@ -420,6 +426,32 @@ function applyCardRomaji() { document.documentElement.classList.toggle('no-card-
   }
 }
 applyCardRomaji();
+
+// ---------- searches with no results (SPEC 27.3): device only, never sent ----------
+function missedList() { const v = store.get(MISSED_KEY, []); return Array.isArray(v) ? v : []; }
+function addMissed(q) {
+  const list = missedList();
+  if (list[0] && list[0].q === q) return;
+  store.set(MISSED_KEY, addMissedTo(list, q, new Date().toISOString().slice(0, 10)));
+  renderMissed();
+}
+function renderMissed() {
+  const ul = $('missedlist');
+  if (!ul) return;
+  const list = missedList();
+  ul.innerHTML = list.length ? list.map((x) => `<li><span class="dim">${esc(x.d)}</span> <span lang="ja">${esc(x.q)}</span></li>`).join('')
+    : '<li class="dim">None yet.</li>';
+}
+{
+  const copyBtn = $('missedcopy'), clearBtn = $('missedclear'), msg = $('missedmsg');
+  if (copyBtn) copyBtn.addEventListener('click', async () => {
+    const list = missedList();
+    const ok = await copyText(missedText(list));
+    if (msg) msg.textContent = ok ? `Copied ${list.length} lines` : 'Could not copy: the clipboard is blocked.';
+  });
+  if (clearBtn) clearBtn.addEventListener('click', () => { store.set(MISSED_KEY, []); renderMissed(); if (msg) msg.textContent = 'Cleared.'; });
+}
+renderMissed();
 
 // ---------- read the reading aloud (SPEC 26.2) ----------
 // Android app: native TTS plugin (@capacitor-community/text-to-speech); web and desktop: speechSynthesis with the
@@ -634,6 +666,8 @@ function onResult(m) {
   const bar = suggestionBarHtml(r);
   dymEl.innerHTML = bar;
   dymEl.hidden = !bar;
+  if (m.phase === 'full') S.lastEmpty = !r.groups.length && m.loaded.names && m.loaded.wikt ? S.query.trim() : null;
+  if (S.lastEmpty && S.recent[0] === S.lastEmpty) addMissed(S.lastEmpty); // settled before its result came
   if (!r.groups.length) {
     const still = !m.loaded.names || !m.loaded.wikt;
     resultsEl.innerHTML = m.phase === 'fast' ? resultsEl.innerHTML

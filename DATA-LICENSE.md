@@ -43,7 +43,8 @@ Corpus, which is in the public domain.
 JLPT Resources page under the terms of the Creative Commons BY license."
 
 **UniDic.** Pitch accent values from UniDic (unidic-cwj-202512, https://clrd.ninjal.ac.jp/unidic/), used under
-the BSD 3-clause licence option. The full BSD licence text (copyright notice, conditions and disclaimer) from the
+the BSD 3-clause licence option ("Copyright (c) 2023 National Institute for Japanese Language and Linguistics",
+file `license/BSD` of the package). The full BSD licence text (copyright notice, conditions and disclaimer) from the
 UniDic package is stored with the data in `pitch.json` (field `license`).
 
 ## Share-alike

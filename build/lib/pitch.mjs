@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { OUT, download, rmCache, lines, log, mb } from './util.mjs';
-import { pitchKey, fittingValues, accentValues } from '../../app/search/pitch.js';
+import { pitchKey, fittingValues, accentValues, readingsByPriority } from '../../app/search/pitch.js';
 
 export const UNIDIC = {
   name: 'unidic-cwj-202512',
@@ -86,7 +86,7 @@ export async function buildPitch({ toHiragana }) {
   let records = 0;
   eachWord((rec) => {
     records++;
-    const r = rec.r && rec.r[0];
+    const r = readingsByPriority(rec)[0];
     if (!r) return;
     if (rec.k && rec.k.length) for (const k of rec.k) wantPair.add(`${k}\t${toHiragana(r)}`);
     else wantKana.add(toHiragana(r));
@@ -107,16 +107,20 @@ export async function buildPitch({ toHiragana }) {
 
   const pairVals = new Map();   // "orth\thira" -> values in first-seen order (wanted pairs only)
   const kanaSets = new Map();   // hira -> Map(orth -> values) (wanted kana only)
-  let rows = 0, withAccent = 0, shown = 0;
+  let rows = 0, withAccent = 0, shown = 0, proper = 0;
+  const WATCH = new Set(['橋\tはし', '箸\tはし', '端\tはし']); // logged rows: the CI check words (SPEC 25.3)
   const add = (f) => {
     rows++;
     if (f.length <= F.aType) return;
     if (shown < 3) { shown++; log(`  sample features: ${f.slice(0, 27).join(',')}`); }
+    const orth = f[F.orth], hira = toHiragana(f[F.kana]);
+    const pk = `${orth}\t${hira}`;
+    if (WATCH.has(pk)) log(`  row ${pk.replace('\t', '/')}: ${f.slice(0, 8).join(',')} aType ${f[F.aType]}`);
+    // SPEC 25.2: proper nouns (surnames, place names) are not the JMdict words; their accent is not borrowed
+    if (f[1] === '固有名詞') { proper++; return; }
     const vals = accentValues(f[F.aType]);
     if (!vals.length) return;
     withAccent++;
-    const orth = f[F.orth], hira = toHiragana(f[F.kana]);
-    const pk = `${orth}\t${hira}`;
     if (wantPair.has(pk)) {
       const cur = pairVals.get(pk) || [];
       for (const v of vals) if (!cur.includes(v)) cur.push(v);
@@ -138,7 +142,7 @@ export async function buildPitch({ toHiragana }) {
   await u.done();
   rmCache(zip);
   if (rows < 100000) throw new Error(`UniDic: only ${rows} rows read from ${src}`);
-  log(`  UniDic: ${rows} rows, ${withAccent} with an accent type, ${pairVals.size} wanted pairs found`);
+  log(`  UniDic: ${rows} rows, ${proper} proper-noun rows skipped, ${withAccent} with an accent type, ${pairVals.size} wanted pairs found`);
 
   // 3. Join (SPEC 25): exact (kanji form, kana form) of a record: the first kanji form that has the pair wins.
   //    Kana-only records: only when every UniDic entry of that kana has the same accent set. Never guessed.
@@ -147,7 +151,7 @@ export async function buildPitch({ toHiragana }) {
   eachWord((rec) => {
     const key = pitchKey(rec);
     if (!key || key in out) return;
-    const r = rec.r[0];
+    const r = readingsByPriority(rec)[0];
     let vals = null;
     if (rec.k && rec.k.length) {
       for (const k of rec.k) { const v = pairVals.get(`${k}\t${toHiragana(r)}`); if (v) { vals = v; break; } }
