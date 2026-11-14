@@ -139,7 +139,7 @@ if (fs.existsSync(path.join(OUT, 'pitch.json'))) {
     for (const [k, want] of [['橋\tはし', '2'], ['箸\tはし', '1']]) {
       a[k] === want ? ok(`pitch ${k.replace('\t', '/')} = ${a[k]}`) : fail(`pitch ${k.replace('\t', '/')} = ${JSON.stringify(a[k])}, expected ${want}`);
     }
-    for (const k of ['端\tはし', '雨\tあめ', '飴\tあめ', '東京\tとうきょう']) ok(`pitch ${k.replace('\t', '/')} = ${JSON.stringify(a[k])} (shown, not checked)`);
+    for (const k of ['端\tはし', '雨\tあめ', '飴\tあめ', '東京\tとうきょう', '大阪\tおおさか', '綺麗\tきれい']) ok(`pitch ${k.replace('\t', '/')} = ${JSON.stringify(a[k])} (shown, not checked)`);
     /BSD|Redistribution/i.test(o.license || '') ? ok('pitch: BSD licence text included') : fail('pitch: no BSD licence text');
   } catch (e) { fail(`pitch.json: ${e.message}`); }
 } else {

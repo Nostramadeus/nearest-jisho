@@ -769,8 +769,9 @@ A second press while a check runs is ignored.
   rows with the same pair are merged (first seen order, duplicates removed).
 - Kana-only records: key = the first kana form in hiragana. Used only when every UniDic entry with that kana has the
   same accent set (はし: 箸 1, 橋 2, 端 0 -> no pitch for a kana-only はし record).
-- UniDic rows with part of speech 2 = 固有名詞 (proper nouns: surnames, place names) are skipped: the first CI build
-  gave 橋/はし = "1,2" because a proper-noun row of the same pair carried 1.
+- UniDic rows with part of speech 2 = 固有名詞 (proper nouns: surnames, place names) count for a pair only when the
+  pair has no other row: the first CI build gave 橋/はし = "1,2" (a surname row carried 1); skipping proper nouns
+  outright lost 東京/とうきょう (place-name rows only). Now 橋 -> 2 and 東京 -> its place-name value.
 - No match = no pitch. Never guessed, never another reading's accent. Values larger than the mora count of the
   reading are dropped.
 - "First kana form" here and in 25.4 = the first of the record's kana forms after SPEC 27.2 ordering (readings with

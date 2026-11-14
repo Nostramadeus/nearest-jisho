@@ -105,10 +105,15 @@ export async function buildPitch({ toHiragana }) {
   const sys = entries.find((e) => path.basename(e) === 'sys.dic');
   if (!lex && !sys) throw new Error('UniDic zip has neither lex.csv nor sys.dic');
 
-  const pairVals = new Map();   // "orth\thira" -> values in first-seen order (wanted pairs only)
-  const kanaSets = new Map();   // hira -> Map(orth -> values) (wanted kana only)
+  // values in first-seen order, kept apart for common rows (c) and proper-noun rows (p) (SPEC 25.2)
+  const pairVals = new Map();   // "orth\thira" -> { c: [], p: [] } (wanted pairs only)
+  const kanaSets = new Map();   // hira -> Map(orth -> { c: [], p: [] }) (wanted kana only)
+  const push = (slot, isProper, vals) => { const a = isProper ? slot.p : slot.c; for (const v of vals) if (!a.includes(v)) a.push(v); };
+  // proper-noun values count only when the pair has no other row: 橋/はし has a surname row with 1 and a noun row with
+  // 2 -> 2; 東京/とうきょう has only place-name rows -> their value
+  const pick = (slot) => (slot.c.length ? slot.c : slot.p);
   let rows = 0, withAccent = 0, shown = 0, proper = 0;
-  const WATCH = new Set(['橋\tはし', '箸\tはし', '端\tはし']); // logged rows: the CI check words (SPEC 25.3)
+  const WATCH = new Set(['橋\tはし', '箸\tはし', '端\tはし', '東京\tとうきょう']); // logged rows: the CI check words (SPEC 25.3)
   const add = (f) => {
     rows++;
     if (f.length <= F.aType) return;
@@ -116,22 +121,22 @@ export async function buildPitch({ toHiragana }) {
     const orth = f[F.orth], hira = toHiragana(f[F.kana]);
     const pk = `${orth}\t${hira}`;
     if (WATCH.has(pk)) log(`  row ${pk.replace('\t', '/')}: ${f.slice(0, 8).join(',')} aType ${f[F.aType]}`);
-    // SPEC 25.2: proper nouns (surnames, place names) are not the JMdict words; their accent is not borrowed
-    if (f[1] === '固有名詞') { proper++; return; }
+    const isProper = f[1] === '固有名詞';
     const vals = accentValues(f[F.aType]);
     if (!vals.length) return;
     withAccent++;
+    if (isProper) proper++;
     if (wantPair.has(pk)) {
-      const cur = pairVals.get(pk) || [];
-      for (const v of vals) if (!cur.includes(v)) cur.push(v);
-      pairVals.set(pk, cur);
+      let slot = pairVals.get(pk);
+      if (!slot) pairVals.set(pk, (slot = { c: [], p: [] }));
+      push(slot, isProper, vals);
     }
     if (wantKana.has(hira)) {
       let m = kanaSets.get(hira);
       if (!m) { m = new Map(); kanaSets.set(hira, m); }
-      const cur = m.get(orth) || [];
-      for (const v of vals) if (!cur.includes(v)) cur.push(v);
-      m.set(orth, cur);
+      let slot = m.get(orth);
+      if (!slot) m.set(orth, (slot = { c: [], p: [] }));
+      push(slot, isProper, vals);
     }
   };
   const src = lex || sys;
@@ -142,7 +147,7 @@ export async function buildPitch({ toHiragana }) {
   await u.done();
   rmCache(zip);
   if (rows < 100000) throw new Error(`UniDic: only ${rows} rows read from ${src}`);
-  log(`  UniDic: ${rows} rows, ${proper} proper-noun rows skipped, ${withAccent} with an accent type, ${pairVals.size} wanted pairs found`);
+  log(`  UniDic: ${rows} rows, ${proper} proper-noun rows (used only for pairs without other rows), ${withAccent} with an accent type, ${pairVals.size} wanted pairs found`);
 
   // 3. Join (SPEC 25): exact (kanji form, kana form) of a record: the first kanji form that has the pair wins.
   //    Kana-only records: only when every UniDic entry of that kana has the same accent set. Never guessed.
@@ -154,13 +159,14 @@ export async function buildPitch({ toHiragana }) {
     const r = readingsByPriority(rec)[0];
     let vals = null;
     if (rec.k && rec.k.length) {
-      for (const k of rec.k) { const v = pairVals.get(`${k}\t${toHiragana(r)}`); if (v) { vals = v; break; } }
+      for (const k of rec.k) { const v = pairVals.get(`${k}\t${toHiragana(r)}`); if (v) { vals = pick(v); break; } }
       if (vals) kanjiHits++;
     } else {
       const m = kanaSets.get(toHiragana(r));
       if (m) {
-        const sets = new Set([...m.values()].map((v) => v.slice().sort((a, b) => a - b).join(',')));
-        if (sets.size === 1) { vals = m.values().next().value; kanaHits++; } else kanaAmbiguous++;
+        const all = [...m.values()].map(pick);
+        const sets = new Set(all.map((v) => v.slice().sort((a, b) => a - b).join(',')));
+        if (sets.size === 1) { vals = all[0]; kanaHits++; } else kanaAmbiguous++;
       }
     }
     if (!vals) return;
