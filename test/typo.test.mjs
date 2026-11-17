@@ -202,7 +202,7 @@ test('uk words show their kana headword everywhere; a typed form wins', () => {
   assert.deepEqual(headParts(rec, null), { head: 'まで', reading: '', headMark: null, readMark: null });
   assert.equal(headParts(rec, { space: 'k', form: '迄', len: -1 }).head, '迄');
   const card = cardHtml({ pack: 'words', id, tier: 0, hl: null, rec }, 0, 0);
-  assert.match(card, /<a class="hw" href="#w=%E8%BF%84&amp;r=%E3%81%BE%E3%81%A7&amp;p=words">まで<\/a>/); // address keeps 迄
+  assert.match(card, /data-entry="#w=%E8%BF%84&amp;r=%E3%81%BE%E3%81%A7&amp;p=words"[^]*<span class="hw" role="link" tabindex="0">まで<\/span><button type="button" class="cp" data-copy="まで"/); // address keeps 迄
   assert.match(card, /Other forms: <span lang="ja">迄<\/span>/);
   assert.match(card, /data-h="まで"/);
   const e = entryData(mini, 'words', id);

@@ -196,7 +196,7 @@ Tie-break before recordId: a record whose kanji/kana form or query is in `opts.r
 A record is listed once, at its best tier.
 
 ### 4.7 KANJI queries (space `k`)
-Tier 0 exact key; tier 2 prefix; then "contains" (substring scan over the keys string, query length >= 2, max 100)
+Tier 0 exact key; tier 2 prefix; then "contains" (substring scan over the keys string, max 100; one character is enough since SPEC 28.2)
 as tier 3 with cost 1 and no "did you mean" line. Then deinflection (4.8). No fuzzy. KANA queries also check
 space `k` tier 0 (katakana words) in addition to space `r`.
 
@@ -204,7 +204,7 @@ space `k` tier 0 (katakana words) in addition to space `r`.
 For KANA and KANJI queries (and LATIN queries converted cleanly to kana): produce base-form candidates with a
 standard rule table, then keep a candidate only if a words-pack record has that form AND a matching POS
 (v1, v5*, vk, vs-i/vs-s, adj-i, v5r-i, v5k-s, vz). Rules to cover: masu-stem forms (ます ました ません ませんでした
-ましょう), て/で, た/だ, ない なかった なくて ず, ば-conditional, たら, たり, potential, passive, causative,
+ましょう), て/で, た/だ, ない なかった なくて ず ん ぬ (SPEC 28.3), ば-conditional, たら, たり, potential, passive, causative,
 causative-passive, volitional, imperative, たい たくない たかった, ている/てる/ていた/てた, ちゃう/じゃう/ちゃった,
 すぎる, なさい, adjective く くて かった くない くなかった ければ さ そう. Up to 2 chained rules (e.g. 食べさせられた).
 Deinflected hits are tier 0 with `via: "<form name>"`, shown with the note `食べた is the past form of 食べる`,
@@ -864,3 +864,33 @@ by the owner.
 - Settings: fieldset "Searches with no results" with the list, "Copy all" (one line per search, `date<TAB>query`) and
   "Clear".
 - Code: `addMissedTo()`, `missedText()` in `app/favorites.js`; UI in `app/main.js`.
+
+## 28. Copying words, one-kanji searches, the -n negative (added 2026-11-17, owner's report)
+Owner's report: words and kanji could not be selected or copied on the search screen or the entry page; pasting 覆
+alone did not list 覆す; kutsugaesan (覆さん) did not list 覆す.
+
+### 28.1 Copying
+- Cause: the card headword was a link. A browser drags a link instead of selecting its text, and a long press on a
+  link on Android does not start a text selection.
+- The card headword is now `<span class="hw" role="link" tabindex="0">` (plain text). A tap anywhere on the card still
+  opens the entry; Enter on the focused headword opens it too. Lost on purpose: Ctrl+click on the headword no longer
+  opens a new tab.
+- Furigana (`rt`) has `user-select: none`: a selection over a headword copies the word alone (覆す, not 覆くつがえす).
+  The reading can be copied from the romaji line and the pitch line.
+- Copy button (`copyHtml()` in `app/render.js`, class `cp`, 36x36 px, 18 px icon): after the headword on every result
+  card, after the headword on the entry page, and under the big character of every "Kanji in this word" block. One
+  tap copies that text (`copyText()` in `app/main.js`); the icon shows a check mark for 1.5 seconds, or a cross when
+  the clipboard is blocked. The button never opens the entry page.
+
+### 28.2 One-kanji searches
+- A KANJI query of one character now also gets tier 2 (written forms that start with it, max 200 in rank order) and
+  "contains" (max 100). Before, both needed 2 characters, so 覆 listed only the word 覆 (ふく).
+- Order is unchanged: exact first, then prefix (common first, then rank), then contains. Real data 2026-11-14:
+  覆 -> 覆, 覆う, 覆す, 覆る, 覆面.
+- KANA and LATIN queries are unchanged (their prefix tier still needs 2 letters).
+
+### 28.3 Negative in -n and -nu
+- New deinflection rules: negative stem + ん (`negative (-n)`) and + ぬ (`classical negative (-nu)`) for ichidan,
+  godan, 来る and する (覆さん, 知らん, 食べん, 来ん, せん; 覆さぬ).
+- Known side effect, accepted: a short kana noun that also parses as such a form lists the verb after the exact
+  hits (ねん -> 年, 念, then 寝る with its note). Same behaviour as the existing て / た rules.

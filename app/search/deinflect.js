@@ -30,7 +30,7 @@ export function posBits(tag) {
 const N = {
   polite: 'polite', politePast: 'polite past', politeNeg: 'polite negative', politePastNeg: 'polite past negative',
   politeVol: 'polite volitional', te: 'te-form', past: 'past', neg: 'negative', negPast: 'negative past',
-  negTe: 'negative te-form', zu: 'classical negative (-zu)', ba: 'conditional (-ba)', tara: 'conditional (-tara)',
+  negTe: 'negative te-form', zu: 'classical negative (-zu)', negN: 'negative (-n)', nu: 'classical negative (-nu)', ba: 'conditional (-ba)', tara: 'conditional (-tara)',
   tari: 'listing (-tari)', potential: 'potential', passive: 'passive', potPass: 'potential or passive',
   causative: 'causative', causPass: 'causative-passive', vol: 'volitional', imp: 'imperative', tai: 'want (-tai)',
   taiNeg: 'negative want (-takunai)', taiPast: 'past want (-takatta)', prog: 'progressive (-te iru)',
@@ -77,6 +77,8 @@ stemForms('', 'る', T.V1);
 teForms('て', 'た', 'る', T.V1);
 negForms('', 'る', T.V1);
 r('ず', 'る', T.INIT, T.V1, N.zu);
+r('ん', 'る', T.INIT, T.V1, N.negN); // SPEC 28.3: 食べん, 見ん
+r('ぬ', 'る', T.INIT, T.V1, N.nu);
 r('れば', 'る', T.INIT, T.V1, N.ba);
 r('られる', 'る', T.V1, T.V1, N.potPass);
 r('れる', 'る', T.V1, T.V1, N.potential);
@@ -103,6 +105,8 @@ for (const [u, i, a, e, o, te, ta] of GODAN) {
   teForms(te, ta, u, T.V5);
   negForms(a, u, T.V5);
   r(a + 'ず', u, T.INIT, T.V5, N.zu);
+  r(a + 'ん', u, T.INIT, T.V5, N.negN); // SPEC 28.3: 覆さん, 知らん
+  r(a + 'ぬ', u, T.INIT, T.V5, N.nu);
   r(e + 'ば', u, T.INIT, T.V5, N.ba);
   r(e + 'る', u, T.V1, T.V5, N.potential);
   r(a + 'れる', u, T.V1, T.V5, N.passive);
@@ -124,6 +128,8 @@ for (const [ki, ko, ku, base] of [['き', 'こ', 'く', 'くる'], ['来', '来'
   teForms(ki + 'て', ki + 'た', base, T.VK);
   negForms(ko, base, T.VK);
   r(ko + 'ず', base, T.INIT, T.VK, N.zu);
+  r(ko + 'ん', base, T.INIT, T.VK, N.negN);
+  r(ko + 'ぬ', base, T.INIT, T.VK, N.nu);
   r(ku + 'れば', base, T.INIT, T.VK, N.ba);
   r(ko + 'られる', base, T.V1, T.VK, N.potPass);
   r(ko + 'れる', base, T.V1, T.VK, N.potential);
@@ -138,6 +144,8 @@ stemForms('し', 'する', T.VS);
 teForms('して', 'した', 'する', T.VS);
 negForms('し', 'する', T.VS);
 r('せず', 'する', T.INIT, T.VS, N.zu);
+r('せん', 'する', T.INIT, T.VS, N.negN);
+r('せぬ', 'する', T.INIT, T.VS, N.nu);
 r('すれば', 'する', T.INIT, T.VS, N.ba);
 r('される', 'する', T.V1, T.VS, N.passive);
 r('させる', 'する', T.V1, T.VS, N.causative);

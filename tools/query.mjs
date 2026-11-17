@@ -117,6 +117,9 @@ const SLANG = new Set(['sl', 'net-sl', 'm-sl', 'col', 'vulg']);
 const firstResult = (res) => res.groups[0]?.results[0];
 const groupOf = (res, id) => res.groups.find((g) => g.id === id);
 const ACCEPT = [
+  ['覆', 'fiction', (r) => groupOf(r, 'words').results.slice(0, 5).map(head).includes('覆す'), '覆す in the top 5 for the single kanji (SPEC 28.2)'],
+  ['覆さん', 'fiction', (r) => head(firstResult(r)) === '覆す' && firstResult(r).via === 'negative (-n)', '覆す first, as the negative (-n) form (SPEC 28.3)'],
+  ['kutsugaesan', 'fiction', (r) => head(firstResult(r)) === '覆す' && firstResult(r).via === 'negative (-n)', '覆す first, as the negative (-n) form (SPEC 28.3)'],
   ['地団駄', 'fiction', (r) => groupOf(r, 'words').results.every((h) => { const rec = store.getRecord(h.pack, h.id); return !(rec.k || []).includes('地団駄をふむ') && (!(rec.k || []).includes('地団駄を踏む') || (rec.h || []).includes('地団駄をふむ')); }),
     'search-only form 地団駄をふむ is hidden (rec.h), 地団駄を踏む is the shown form (SPEC 24)'],
   ['地団駄', 'fiction', (r) => r.groups[0].id === 'wikt' && head(firstResult(r)) === '地団駄', '地団駄 (Wiktionary, exact) above 地団駄を踏む'],

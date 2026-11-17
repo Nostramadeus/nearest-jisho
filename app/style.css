@@ -113,6 +113,19 @@ main { flex: 1 0 auto; }
 .card > .star { position: absolute; top: 4px; right: 4px; }
 .no-fav .star, .no-fav .favbtn { display: none !important; }
 .card .hw { color: inherit; text-decoration: none; }
+/* SPEC 28.1: every word can be selected; furigana is left out of a selection so a copy gives the word alone */
+.card, .entry { -webkit-user-select: text; user-select: text; }
+rt { -webkit-user-select: none; user-select: none; }
+/* SPEC 28.1: copy button, 36x36 hit area, 18 px icon */
+.cp { display: inline-grid; place-items: center; width: 36px; height: 36px; margin-left: 4px; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--dim); cursor: pointer; vertical-align: middle; flex: 0 0 auto;
+  font: 18px/1 system-ui, sans-serif; -webkit-user-select: none; user-select: none; }
+.cp:hover, .cp:focus-visible { color: var(--acc); }
+.cp.ok svg, .cp.no svg { display: none; }
+.cp.ok::after { content: "\2713"; color: var(--acc); font-weight: 700; }
+.cp.no::after { content: "\2717"; color: var(--slangink); font-weight: 700; }
+.kcol { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 0 0 auto; }
+.kcol .cp { margin-left: 0; }
 .card .hw:hover, .card .hw:focus-visible { text-decoration: underline; text-decoration-color: var(--acc); }
 mark { background: none; color: var(--acc); font-weight: 700; }
 .tags { margin-top: 4px; }

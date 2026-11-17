@@ -437,13 +437,13 @@ function writtenT02(store, ctx, pack, q, hits, kanaExact) {
   const ex = ks.find(q);
   if (ex >= 0) for (const id of ks.idsOf(ex)) put(hits, { pack, id, tier: 0, sub: 0, cost: 0, space: 'k', key: q, keyLen: q.length });
   if (kanaExact) return hits.size;
-  if (Array.from(q).length >= 2) prefixTier2(store, ctx, pack, ks, q, ex, hits, 'k');
+  prefixTier2(store, ctx, pack, ks, q, ex, hits, 'k'); // SPEC 28.2: also for a one-character query (覆 -> 覆す)
   return hits.size;
 }
 
 function writtenContains(store, ctx, pack, q, hits) {
   const ks = store.keySpace(pack, 'k');
-  if (!ks || Array.from(q).length < 2) return;
+  if (!ks || !q) return; // SPEC 28.2: one character is enough (覆 -> 転覆)
   const str = ks.str;
   const keyIdx = new Set();
   for (let p = str.indexOf(q); p !== -1; p = str.indexOf(q, p + 1)) {

@@ -360,9 +360,19 @@ favViewEl.addEventListener('click', (e) => {
   openEntry(parseEntryHash(a.getAttribute('href')));
 });
 
+/** SPEC 28.1: copy button; the icon turns into a check mark (or a cross when the clipboard is blocked) for 1.5 s. */
+async function onCopy(btn) {
+  const ok = await copyText(btn.dataset.copy || '');
+  btn.classList.remove('ok', 'no');
+  btn.classList.add(ok ? 'ok' : 'no');
+  setTimeout(() => btn.classList.remove('ok', 'no'), 1500);
+}
+
 entryEl.addEventListener('click', (e) => {
   const star = e.target.closest('button.star');
   if (star) { onStar(star); return; }
+  const cp = e.target.closest('button.cp');
+  if (cp) { onCopy(cp); return; }
   const say = e.target.closest('button.say');
   if (say) { if (tts.speak) tts.speak(say.dataset.say); return; }
   const a = e.target.closest('a[href^="#w="]');
@@ -731,6 +741,8 @@ resultsEl.addEventListener('click', (e) => {
   }
   const star = e.target.closest('button.star');
   if (star) { onStar(star); return; } // the star never opens the entry page
+  const cp = e.target.closest('button.cp');
+  if (cp) { onCopy(cp); return; } // SPEC 28.1
   // SPEC 17.4: a chip scrolls to its segment's item and flashes its border once
   const chip = e.target.closest('button.chip');
   if (chip) {
@@ -761,11 +773,19 @@ resultsEl.addEventListener('click', (e) => {
     return;
   }
   if (e.target.closest('button')) return;
-  const a = e.target.closest('a');
-  if (a && !a.classList.contains('hw')) return; // other links keep their own target
-  if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return; // new tab / window: browser default
-  if (!a && window.getSelection && String(window.getSelection()).length) return; // selecting text is not a tap
+  if (e.target.closest('a')) return; // links keep their own target
+  if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
+  if (window.getSelection && String(window.getSelection()).length) return; // selecting text is not a tap
   e.preventDefault();
+  openEntry(parseEntryHash(card.dataset.entry));
+});
+// SPEC 28.1: the headword is plain text (selectable), no longer a link; Enter on it still opens the entry
+resultsEl.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || !e.target.classList || !e.target.classList.contains('hw')) return;
+  const card = e.target.closest('.card');
+  if (!card) return;
+  e.preventDefault();
+  if (S.query.trim()) addRecent(S.query);
   openEntry(parseEntryHash(card.dataset.entry));
 });
 

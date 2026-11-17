@@ -43,7 +43,7 @@ test('near results sit under a Did you mean line; English tokens are marked', ()
 test('kanji match marks the headword; deinflection note shown', () => {
   const html = groupsHtml(resolved('辞書').groups);
   // the headword is a real link to the entry page; no inline kanji buttons any more (SPEC 10.2)
-  assert.match(html, /<div class="kanji fu" lang="ja"><a class="hw" href="#w=%E8%BE%9E%E6%9B%B8&amp;r=%E3%81%98%E3%81%97%E3%82%87&amp;p=words"><ruby><mark>辞書<\/mark><rt>じしょ<\/rt><\/ruby><\/a><\/div>/);
+  assert.match(html, /<div class="kanji fu" lang="ja"><span class="hw" role="link" tabindex="0"><ruby><mark>辞書<\/mark><rt>じしょ<\/rt><\/ruby><\/span><button type="button" class="cp" data-copy="辞書" aria-label="Copy 辞書" title="Copy"><svg[^]*?<\/svg><\/button><\/div>/);
   assert.ok(!html.includes('data-kanji'));
   assert.match(html, /<article class="card" data-g="0" data-r="0" data-entry="#w=/);
   const d = groupsHtml(resolved('たべた').groups);
@@ -103,4 +103,11 @@ test('SPEC 24: a match on a search-only spelling shows the first normal spelling
   const html = cardHtml({ pack: 'words', id: 0, tier: 2, hl: { space: 'k', form: '地団駄をふむ', len: -1 }, rec }, 0, 0);
   assert.match(html, /<ruby>地団駄<rt>じだんだ<\/rt><\/ruby>を<ruby>踏<rt>ふ<\/rt><\/ruby>む/);
   assert.ok(!html.includes('地団駄をふむ'));
+});
+
+test('copy buttons (SPEC 28.1): headword is plain text, buttons carry the text to copy', async () => {
+  const { copyHtml, kanjiBlockHtml } = await import('../app/render.js');
+  assert.match(copyHtml('覆す'), /^<button type="button" class="cp" data-copy="覆す" aria-label="Copy 覆す" title="Copy"><svg/);
+  assert.match(copyHtml('a"b'), /data-copy="a&quot;b"/);
+  assert.match(kanjiBlockHtml('覆', {}), /<div class="kcol"><div class="big" lang="ja">覆<\/div><button type="button" class="cp" data-copy="覆"/);
 });

@@ -111,7 +111,7 @@ test('result cards: romaji line under the word (setting can hide it), none for n
   try {
     const rec = store.getRecord('words', findEntry(store, 'words', '辞書', 'じしょ'));
     const html = cardHtml({ pack: 'words', rec, tier: 0 }, 0, 0);
-    assert.match(html, /<\/a><\/div><div class="romaji">jisho<\/div>/);
+    assert.match(html, /<\/button><\/div><div class="romaji">jisho<\/div>/);
     assert.doesNotMatch(html, /class="say"/); // speaker only on the entry page
     const kana = store.getRecord('words', findEntry(store, 'words', 'まで', 'まで'));
     assert.match(cardHtml({ pack: 'words', rec: kana, tier: 0 }, 0, 0), /<div class="romaji">made<\/div>/);

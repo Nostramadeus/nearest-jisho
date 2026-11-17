@@ -9,6 +9,14 @@ const KANA_ONLY = /^[\p{Script=Hiragana}\p{Script=Katakana}ー・]+$/u;
 const SAY_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/>' +
   '<path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 
+const COPY_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
+  '<path d="M15 5.5V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+
+/** Copy button (SPEC 28.1): one tap puts `text` on the clipboard. */
+export function copyHtml(text) {
+  return `<button type="button" class="cp" data-copy="${esc(text)}" aria-label="Copy ${esc(text)}" title="Copy">${COPY_SVG}</button>`;
+}
+
 const STAR_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>';
 
 /**
@@ -199,7 +207,7 @@ export function cardHtml(hit, gi, ri, opts = {}) {
   return `<article class="card" data-g="${gi}" data-r="${ri}" data-entry="${esc(href)}">` +
     starHtml(addr, firstGloss(rec), isFav(opts, addr), '', head) +
     `<div class="word">${reading && !fu ? `<div class="kana" lang="ja">${markText(reading, readMark)}</div>` : ''}` +
-    `<div class="kanji${fu ? ' fu' : ''}" lang="ja"><a class="hw" href="${esc(href)}">${fu ? rubyHtml(fu, headMark, readMark) : markText(head, headMark)}</a></div>` +
+    `<div class="kanji${fu ? ' fu' : ''}" lang="ja"><span class="hw" role="link" tabindex="0">${fu ? rubyHtml(fu, headMark, readMark) : markText(head, headMark)}</span>${copyHtml(head)}</div>` +
     `${roma ? `<div class="romaji">${esc(roma)}</div>` : ''}` +
     `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</div>` +
     `<div class="body">${notes}${body}${moreEx}${forms}${link}</div></article>`;
@@ -211,7 +219,7 @@ export function kanjiBlockHtml(literal, k) {
   const row = (t, v) => (v === '' || v == null ? '' : `<dt>${t}</dt><dd>${v}</dd>`);
   const ja = (list) => (list && list.length ? `<span lang="ja">${esc(list.join('、'))}</span>` : '');
   k = k || {};
-  return `<div class="kblock"><div class="big" lang="ja">${esc(literal)}</div><dl>` +
+  return `<div class="kblock"><div class="kcol"><div class="big" lang="ja">${esc(literal)}</div>${copyHtml(literal)}</div><dl>` +
     row('Meanings', k.m && k.m.length ? esc(k.m.join(', ')) : '') +
     row('On readings', ja(k.on)) +
     row('Kun readings', ja(k.kun)) +
@@ -260,7 +268,7 @@ export function entryHtml(d, opts = {}) {
     `<header class="entry-head">${reading && !fu ? `<div class="kana" lang="ja">${esc(reading)}</div>` : ''}` +
     `${d.romaji ? `<div class="romaji">${esc(d.romaji)}${d.reading ? ` <button type="button" class="say" data-say="${esc(d.reading)}" aria-label="Play the reading" title="Play the reading" hidden>${SAY_SVG}</button>` : ''}</div>` : ''}` +
     `${d.pitch ? `<div class="pitch">${pitchHtml(d.pitch.kana, d.pitch.values)}</div>` : ''}` +
-    `<div class="entry-title"><h2 class="entry-word${fu ? ' fu' : ''}" lang="ja">${fu ? rubyHtml(fu, null, null) : esc(head)}</h2>` +
+    `<div class="entry-title"><h2 class="entry-word${fu ? ' fu' : ''}" lang="ja">${fu ? rubyHtml(fu, null, null) : esc(head)}</h2>${copyHtml(head)}` +
     `${starHtml(entryAddress(pack, rec), firstGloss(rec), isFav(opts, entryAddress(pack, rec)), 'entry-star', head)}</div>` +
     `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</header>`;
   const sec = (title, body) => `<section class="entry-sec"><h3>${title}</h3>${body}</section>`;

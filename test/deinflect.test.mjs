@@ -57,3 +57,16 @@ test('POS tag bits', () => {
   assert.equal(posBits('adj-i'), T.ADJ);
   assert.equal(posBits('n'), 0);
 });
+
+test('negative in -n and -nu (SPEC 28.3)', () => {
+  has('食べん', '食べる', T.V1, 'negative (-n)');
+  has('食べぬ', '食べる', T.V1, 'classical negative (-nu)');
+  has('覆さん', '覆す', T.V5, 'negative (-n)');
+  has('覆さぬ', '覆す', T.V5, 'classical negative (-nu)');
+  has('知らん', '知る', T.V5, 'negative (-n)');
+  has('買わん', '買う', T.V5, 'negative (-n)');
+  has('来ん', '来る', T.VK, 'negative (-n)');
+  has('せん', 'する', T.VS, 'negative (-n)');
+  has('覆されん', '覆す', T.V5, 'passive + negative (-n)');
+  assert.ok(!deinflect('さん').some((x) => x.form === 'す'), 'a bare ending is not a word');
+});
