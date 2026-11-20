@@ -369,11 +369,11 @@ export function updateBarHtml(state) {
  * "Words in this text" (SPEC 17.4): line 1 = the text with a chip per word (unknown runs dim, separators kept),
  * then one item per distinct record in text order: a compact row for function words, else the normal card plus
  * the deinflection note and "N other entries for <segment>".
- * SPEC 29: under line 1, one row of chips per other way to split; the words only those rows use come last, under
- * the small heading "Words from the other splits".
+ * SPEC 29: under line 1, one row of chips per other way to split; a word only such a row uses sits in the list at
+ * its place in the text (class "alt"), the first one of a split under the small label "Other split: <pieces>".
  */
 export const ALT_HEAD = 'Other ways to split:';
-export const ALT_WORDS_HEAD = 'Words from the other splits';
+export const ALT_WORDS_HEAD = 'Other split:';
 export function textGroupHtml(g, gi, opts = {}) {
   const words = g.wordCount || g.results.length;
   let html = `<section class="group textgroup" data-group="text"><h2>${esc(g.title)} <span class="count">${words}</span></h2>`;
@@ -389,10 +389,9 @@ export function textGroupHtml(g, gi, opts = {}) {
       `</span> <span class="instead">instead of <span lang="ja">${esc(a.instead.join(' / '))}</span></span></p>`).join('') + '</div>';
   }
   for (const n of g.notes || (g.note ? [g.note] : [])) html += `<p class="textnote">${esc(n)}</p>`;
-  let altHeadShown = false;
   g.results.forEach((h, i) => {
-    if (h.alt && !altHeadShown) { altHeadShown = true; html += `<p class="altsub">${ALT_WORDS_HEAD}</p>`; }
-    html += `<div class="titem" id="t-${i}">`;
+    if (h.altHead) html += `<p class="altsub">${ALT_WORDS_HEAD} <span lang="ja">${esc(h.altHead)}</span></p>`;
+    html += `<div class="titem${h.alt ? ' alt' : ''}" id="t-${i}">`;
     if (h.fn) html += functionRowHtml(h);
     else {
       html += cardHtml(h, gi, i, opts);

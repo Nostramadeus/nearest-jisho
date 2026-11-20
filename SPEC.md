@@ -926,8 +926,11 @@ alternative are looked for, per run of word characters, only among the first 60 
 - Directly under line 1 (17.4): the small line `Other ways to split:` and one row per alternative: its pieces as
   chips, then, small and dim, `instead of <the chosen pieces joined by " / ">`.
 - A chip of such a row behaves like a chip of line 1: it scrolls to its word's item and flashes it.
-- The words that only the alternatives use come after the chosen split's items, under the small heading
-  `Words from the other splits`; same card / compact-row rules as 17.4. A record already shown is not repeated.
+- The list stays in text order (ruling 2026-11-20, owner: no second block at the end, so a word from the middle of
+  a long text is found in the middle of the list). A word that only an alternative uses sits right after the chosen
+  words its alternative replaces; it has a coloured left edge, and the first such word of an alternative has the
+  small label `Other split: <its pieces joined by " / ">` above it. Same card / compact-row rules as 17.4.
+  A record the chosen split also uses is shown once, at its chosen place, without the edge.
 - The count in the group title stays the word count of the chosen split.
 
 ### 29.4 Acceptance (real packs, `tools/query.mjs --accept`)

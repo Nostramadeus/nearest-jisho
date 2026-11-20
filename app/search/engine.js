@@ -1084,8 +1084,9 @@ export const TEXT_MORE_NOTE = 'Showing the first 60 words.';
 /**
  * The "Words in this text" group (SPEC 17): segments in text order, one result per distinct record (at most 60
  * word segments), function words as compact rows. group.segments = line 1 (chips, unknown runs, separators).
- * SPEC 29: group.alts = the other ways to split, [{ instead: [chosen texts], chips: [{ text, item }] }]; the words
- * only they use follow the chosen split's items in group.results with alt: true.
+ * SPEC 29: group.alts = the other ways to split, [{ instead: [chosen texts], chips: [{ text, item }] }]. A word only
+ * they use is a result with alt: true, placed right after the chosen words its split replaces (29.3), so the list
+ * stays in text order; the first such word of a split carries altHead (the split's pieces).
  */
 function textGroup(store, ctx, typed) {
   const { segments, truncated, alts } = segmentText(store, typed, { ranking: ctx.ranking, wordLimit: TEXT_SEGMENTS_MAX });
@@ -1093,35 +1094,56 @@ function textGroup(store, ctx, typed) {
   if (!words.length) return null;
   const results = [];
   const itemOf = new Map(); // pack:id -> result index
-  const itemFor = (seg, alt) => {
-    const key = `${seg.pack}:${seg.id}`;
-    if (!itemOf.has(key)) {
-      itemOf.set(key, results.length);
-      const rec = store.getRecord(seg.pack, seg.id);
-      const fn = isFunctionWord(store, seg);
-      const r = {
-        pack: seg.pack, id: seg.id, tier: 0, cost: 0, via: seg.via || null, space: 'k', key: seg.text,
-        hl: { space: 'k', form: seg.text, len: -1 }, segment: seg.text, others: seg.others, fn,
-      };
-      if (alt) r.alt = true;
-      if (seg.via) {
-        r.base = seg.base;
-        const head = (rec.k || []).includes(seg.base) ? seg.base : ((rec.k || [])[0] || seg.base);
-        r.note = `${seg.text} is the ${seg.via} form of ${head}`;
-      }
-      results.push(r);
+  const keyOf = (seg) => `${seg.pack}:${seg.id}`;
+  const resultOf = (seg) => {
+    const rec = store.getRecord(seg.pack, seg.id);
+    const r = {
+      pack: seg.pack, id: seg.id, tier: 0, cost: 0, via: seg.via || null, space: 'k', key: seg.text,
+      hl: { space: 'k', form: seg.text, len: -1 }, segment: seg.text, others: seg.others, fn: isFunctionWord(store, seg),
+    };
+    if (seg.via) {
+      r.base = seg.base;
+      const head = (rec.k || []).includes(seg.base) ? seg.base : ((rec.k || [])[0] || seg.base);
+      r.note = `${seg.text} is the ${seg.via} form of ${head}`;
     }
-    return itemOf.get(key);
+    return r;
   };
-  const line = [];
+  // Order (29.3): the chosen words at their place in the text; a word only another split uses sits right after the
+  // chosen words that split replaces (pos = the end of its stretch, before the chosen word that starts there).
+  const entries = [];
+  const chosenKeys = new Set();
   let shown = 0;
+  for (const seg of segments) {
+    if (seg.kind !== 'word' || shown >= TEXT_SEGMENTS_MAX) continue;
+    shown++;
+    chosenKeys.add(keyOf(seg));
+    entries.push({ pos: [seg.start, 1, 0, 0], seg, ai: -1 });
+  }
+  alts.forEach((a, ai) => a.segments.forEach((seg, si) => {
+    if (!chosenKeys.has(keyOf(seg))) entries.push({ pos: [a.end, 0, ai, si], seg, ai });
+  }));
+  entries.sort((x, y) => { for (let k = 0; k < 4; k++) if (x.pos[k] !== y.pos[k]) return x.pos[k] - y.pos[k]; return 0; });
+  const headed = new Set(); // other splits whose first own word already carries the label
+  for (const e of entries) {
+    const key = keyOf(e.seg);
+    if (itemOf.has(key)) continue;
+    itemOf.set(key, results.length);
+    const r = resultOf(e.seg);
+    if (e.ai >= 0) {
+      r.alt = true;
+      if (!headed.has(e.ai)) { headed.add(e.ai); r.altHead = alts[e.ai].segments.map((x) => x.text).join(' / '); }
+    }
+    results.push(r);
+  }
+  const line = [];
+  shown = 0;
   for (const seg of segments) {
     if (seg.kind !== 'word') { line.push({ kind: seg.kind, text: seg.text }); continue; }
     if (shown >= TEXT_SEGMENTS_MAX) { line.push({ kind: 'more', text: seg.text }); continue; }
     shown++;
-    line.push({ kind: 'word', text: seg.text, item: itemFor(seg, false) });
+    line.push({ kind: 'word', text: seg.text, item: itemOf.get(keyOf(seg)) });
   }
-  const altLines = alts.map((a) => ({ instead: a.instead, chips: a.segments.map((seg) => ({ text: seg.text, item: itemFor(seg, true) })) }));
+  const altLines = alts.map((a) => ({ instead: a.instead, chips: a.segments.map((seg) => ({ text: seg.text, item: itemOf.get(keyOf(seg)) })) }));
   const notes = [TEXT_NOTE];
   if (truncated) notes.push(TEXT_CUT_NOTE);
   if (words.length > TEXT_SEGMENTS_MAX) notes.push(TEXT_MORE_NOTE);

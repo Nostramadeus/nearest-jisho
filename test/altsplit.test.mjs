@@ -75,29 +75,34 @@ test('the same change at two places is listed once; at most ALT_MAX rows; only a
   assert.deepEqual(alts(store, 'くるまでまつ', { wordLimit: 2 }), ['くる / まで <- くるま / で +0']);
 });
 
-test('the group: alternative rows point to items; their words come last with alt: true', () => {
+test('the group: alternative rows point to items; their words sit right after the chosen words they replace', () => {
   const g = textGroup(store, 'くるまでまつ');
-  assert.deepEqual(g.segments.map((x) => `${x.text}>${x.item}`), ['くるま>0', 'で>1', 'まつ>2']);
-  assert.deepEqual(g.alts, [{ instead: ['くるま', 'で'], chips: [{ text: 'くる', item: 3 }, { text: 'まで', item: 4 }] }]);
-  assert.deepEqual(g.results.map((h) => [h.segment, !!h.alt, h.fn]), [['くるま', false, false], ['で', false, true], ['まつ', false, false], ['くる', true, false], ['まで', true, true]]);
+  assert.deepEqual(g.segments.map((x) => `${x.text}>${x.item}`), ['くるま>0', 'で>1', 'まつ>4']);
+  assert.deepEqual(g.alts, [{ instead: ['くるま', 'で'], chips: [{ text: 'くる', item: 2 }, { text: 'まで', item: 3 }] }]);
+  assert.deepEqual(g.results.map((h) => [h.segment, !!h.alt, h.fn]), [['くるま', false, false], ['で', false, true], ['くる', true, false], ['まで', true, true], ['まつ', false, false]]);
+  assert.deepEqual(g.results.map((h) => h.altHead || ''), ['', '', 'くる / まで', '', '']); // the label once per split
   assert.equal(g.wordCount, 3); // the count in the title stays the chosen split's
-  // a word both splits use is one item: は is not repeated
+  // a word the chosen split uses too stays one item at its chosen place: は is not repeated and not marked alt
   const g2 = textGroup(store, '今日はまつは');
-  assert.deepEqual(g2.alts, [{ instead: ['今日は'], chips: [{ text: '今日', item: 3 }, { text: 'は', item: 2 }] }]);
-  assert.deepEqual(g2.results.map((h) => [h.segment, !!h.alt]), [['今日は', false], ['まつ', false], ['は', false], ['今日', true]]);
+  assert.deepEqual(g2.alts, [{ instead: ['今日は'], chips: [{ text: '今日', item: 1 }, { text: 'は', item: 3 }] }]);
+  assert.deepEqual(g2.results.map((h) => [h.segment, !!h.alt]), [['今日は', false], ['今日', true], ['まつ', false], ['は', false]]);
+  // a long text: the other split's words are in the middle of the list, not at its end
+  const g4 = textGroup(store, 'まつ、まつ。学校でまつ、くるまでまつ、今日はまつ');
+  assert.deepEqual(g4.results.map((h) => `${h.segment}${h.alt ? '*' : ''}`), ['まつ', '学校', 'で', 'くるま', 'くる*', 'まで*', '今日は', '今日*', 'は*']);
   // no other split: no rows, no heading
   const g3 = textGroup(store, '学校でまつ');
   assert.deepEqual(g3.alts, []);
 });
 
-test('rendered rows and the heading above the extra words', () => {
+test('rendered rows and the label above the extra words', () => {
   const g = textGroup(store, 'くるまでまつ');
   for (const h of g.results) h.rec = store.getRecord(h.pack, h.id);
   const html = groupsHtml([g]);
-  assert.match(html, /<\/p><div class="altsplits"><p class="althead">Other ways to split:<\/p><p class="altline"><span lang="ja"><button type="button" class="chip" data-item="3">くる<\/button><button type="button" class="chip" data-item="4">まで<\/button><\/span> <span class="instead">instead of <span lang="ja">くるま \/ で<\/span><\/span><\/p><\/div><p class="textnote">/);
-  assert.match(html, /<p class="altsub">Words from the other splits<\/p><div class="titem" id="t-3">/);
+  assert.match(html, /<\/p><div class="altsplits"><p class="althead">Other ways to split:<\/p><p class="altline"><span lang="ja"><button type="button" class="chip" data-item="2">くる<\/button><button type="button" class="chip" data-item="3">まで<\/button><\/span> <span class="instead">instead of <span lang="ja">くるま \/ で<\/span><\/span><\/p><\/div><p class="textnote">/);
+  assert.match(html, /<p class="altsub">Other split: <span lang="ja">くる \/ まで<\/span><\/p><div class="titem alt" id="t-2">/);
   assert.equal(html.match(/class="altsub"/g).length, 1);
-  assert.match(html, /<div class="titem" id="t-4"><a class="fnrow"/);
+  assert.match(html, /<div class="titem alt" id="t-3"><a class="fnrow"/);
+  assert.match(html, /<div class="titem" id="t-4"><article class="card"/);
   const g3 = textGroup(store, '学校でまつ');
   for (const h of g3.results) h.rec = store.getRecord(h.pack, h.id);
   const plain = groupsHtml([g3]);
