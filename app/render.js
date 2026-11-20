@@ -369,7 +369,11 @@ export function updateBarHtml(state) {
  * "Words in this text" (SPEC 17.4): line 1 = the text with a chip per word (unknown runs dim, separators kept),
  * then one item per distinct record in text order: a compact row for function words, else the normal card plus
  * the deinflection note and "N other entries for <segment>".
+ * SPEC 29: under line 1, one row of chips per other way to split; the words only those rows use come last, under
+ * the small heading "Words from the other splits".
  */
+export const ALT_HEAD = 'Other ways to split:';
+export const ALT_WORDS_HEAD = 'Words from the other splits';
 export function textGroupHtml(g, gi, opts = {}) {
   const words = g.wordCount || g.results.length;
   let html = `<section class="group textgroup" data-group="text"><h2>${esc(g.title)} <span class="count">${words}</span></h2>`;
@@ -378,8 +382,16 @@ export function textGroupHtml(g, gi, opts = {}) {
     if (x.kind === 'unknown') return `<span class="unk">${esc(x.text)}</span>`;
     return esc(x.text); // separators, and text after the first 60 words
   }).join('') + '</p>';
+  if (g.alts && g.alts.length) {
+    html += `<div class="altsplits"><p class="althead">${ALT_HEAD}</p>` + g.alts.map((a) =>
+      '<p class="altline"><span lang="ja">' +
+      a.chips.map((x) => `<button type="button" class="chip" data-item="${x.item}">${esc(x.text)}</button>`).join('') +
+      `</span> <span class="instead">instead of <span lang="ja">${esc(a.instead.join(' / '))}</span></span></p>`).join('') + '</div>';
+  }
   for (const n of g.notes || (g.note ? [g.note] : [])) html += `<p class="textnote">${esc(n)}</p>`;
+  let altHeadShown = false;
   g.results.forEach((h, i) => {
+    if (h.alt && !altHeadShown) { altHeadShown = true; html += `<p class="altsub">${ALT_WORDS_HEAD}</p>`; }
     html += `<div class="titem" id="t-${i}">`;
     if (h.fn) html += functionRowHtml(h);
     else {

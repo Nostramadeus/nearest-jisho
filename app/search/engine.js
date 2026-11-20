@@ -1084,19 +1084,16 @@ export const TEXT_MORE_NOTE = 'Showing the first 60 words.';
 /**
  * The "Words in this text" group (SPEC 17): segments in text order, one result per distinct record (at most 60
  * word segments), function words as compact rows. group.segments = line 1 (chips, unknown runs, separators).
+ * SPEC 29: group.alts = the other ways to split, [{ instead: [chosen texts], chips: [{ text, item }] }]; the words
+ * only they use follow the chosen split's items in group.results with alt: true.
  */
 function textGroup(store, ctx, typed) {
-  const { segments, truncated } = segmentText(store, typed, { ranking: ctx.ranking });
+  const { segments, truncated, alts } = segmentText(store, typed, { ranking: ctx.ranking, wordLimit: TEXT_SEGMENTS_MAX });
   const words = segments.filter((x) => x.kind === 'word');
   if (!words.length) return null;
   const results = [];
   const itemOf = new Map(); // pack:id -> result index
-  const line = [];
-  let shown = 0;
-  for (const seg of segments) {
-    if (seg.kind !== 'word') { line.push({ kind: seg.kind, text: seg.text }); continue; }
-    if (shown >= TEXT_SEGMENTS_MAX) { line.push({ kind: 'more', text: seg.text }); continue; }
-    shown++;
+  const itemFor = (seg, alt) => {
     const key = `${seg.pack}:${seg.id}`;
     if (!itemOf.has(key)) {
       itemOf.set(key, results.length);
@@ -1106,6 +1103,7 @@ function textGroup(store, ctx, typed) {
         pack: seg.pack, id: seg.id, tier: 0, cost: 0, via: seg.via || null, space: 'k', key: seg.text,
         hl: { space: 'k', form: seg.text, len: -1 }, segment: seg.text, others: seg.others, fn,
       };
+      if (alt) r.alt = true;
       if (seg.via) {
         r.base = seg.base;
         const head = (rec.k || []).includes(seg.base) ? seg.base : ((rec.k || [])[0] || seg.base);
@@ -1113,13 +1111,22 @@ function textGroup(store, ctx, typed) {
       }
       results.push(r);
     }
-    line.push({ kind: 'word', text: seg.text, item: itemOf.get(key) });
+    return itemOf.get(key);
+  };
+  const line = [];
+  let shown = 0;
+  for (const seg of segments) {
+    if (seg.kind !== 'word') { line.push({ kind: seg.kind, text: seg.text }); continue; }
+    if (shown >= TEXT_SEGMENTS_MAX) { line.push({ kind: 'more', text: seg.text }); continue; }
+    shown++;
+    line.push({ kind: 'word', text: seg.text, item: itemFor(seg, false) });
   }
+  const altLines = alts.map((a) => ({ instead: a.instead, chips: a.segments.map((seg) => ({ text: seg.text, item: itemFor(seg, true) })) }));
   const notes = [TEXT_NOTE];
   if (truncated) notes.push(TEXT_CUT_NOTE);
   if (words.length > TEXT_SEGMENTS_MAX) notes.push(TEXT_MORE_NOTE);
   return { id: 'text', title: TITLES.text, note: notes.join(' '), notes, results, total: results.length, dym: null,
-    best: results[0], segments: line, wordCount: words.length };
+    best: results[0], segments: line, wordCount: words.length, alts: altLines };
 }
 
 function countTier(map, maxTier) {

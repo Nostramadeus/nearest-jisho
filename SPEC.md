@@ -894,3 +894,43 @@ alone did not list 覆す; kutsugaesan (覆さん) did not list 覆す.
   godan, 来る and する (覆さん, 知らん, 食べん, 来ん, せん; 覆さぬ).
 - Known side effect, accepted: a short kana noun that also parses as such a form lists the verb after the exact
   hits (ねん -> 年, 念, then 寝る with its note). Same behaviour as the existing て / た rules.
+
+## 29. Other ways to split a pasted text (added 2026-11-20, owner's report)
+
+Report: a pasted text can often be cut into words in more than one way (くるまでまつ = くるま / で / まつ or
+くる / まで / まつ), and the page showed only the one split it chose. Now the other splits are listed too.
+
+### 29.1 What is listed
+`segmentText()` (`app/search/segment.js`) also returns `alts`. The chosen split of 19.1 stays as it is. Two kinds of
+alternative are looked for, per run of word characters, only among the first 60 words (the ones shown):
+- A. Moved boundary. For every stretch of 2 to 4 neighbouring chosen segments: the lowest-weight paths over the same
+  characters that use only allowed word edges (29.2) and cut at none of the chosen cut points inside the stretch.
+  So every alternative is the smallest change of its kind, and two stretches never give the same alternative.
+  At most 2 per stretch; one that only cuts another kept alternative of the same stretch finer is dropped.
+- B. One chosen word cut in two. Only the pattern "word of 2 or more characters matched by rule 1" + "function word",
+  in either order, where the function word is one of the particles of 29.2 or a 2-character function word (17.4).
+  This is the 今日は -> 今日 / は case. A plain compound is never offered in pieces (学校 is not 学 / 校).
+
+### 29.2 Weights and limits
+- Edges matched only by the names pack (rule 4) are not used in alternatives: nearly every short kana string is a name.
+- A one-kana piece other than は が を に で と も の へ や か ね よ な weighs 8 more inside an alternative
+  (い, ん, き, す and the like made most of the junk rows on real text).
+- An alternative is kept when its weight is at most 10 above the chosen weight of its stretch; for kind A, plus 5 for
+  every piece it has more than the chosen split (a piece costs at least 10).
+- The same change at two places of the text is listed once. At most 5 alternatives per text: the 5 with the smallest
+  weight difference, shown in text order.
+- Checked on the real packs with 21 sentences (2026-11-20): 13 of them get 1 to 3 rows, 5 get none, the tongue twisters
+  hit the limit of 5.
+
+### 29.3 Display
+- Directly under line 1 (17.4): the small line `Other ways to split:` and one row per alternative: its pieces as
+  chips, then, small and dim, `instead of <the chosen pieces joined by " / ">`.
+- A chip of such a row behaves like a chip of line 1: it scrolls to its word's item and flashes it.
+- The words that only the alternatives use come after the chosen split's items, under the small heading
+  `Words from the other splits`; same card / compact-row rules as 17.4. A record already shown is not repeated.
+- The count in the group title stays the word count of the chosen split.
+
+### 29.4 Acceptance (real packs, `tools/query.mjs --accept`)
+くるまでまつ lists くる / まで; ここではきものをぬぐ lists で / はきもの; 今日は学校に行きたくない lists only 今日 / は;
+彼は人気のない公園にいた lists 人気 / の / ない; ばあさんどれい lists ばあ / さんど / れい;
+あなたのことがすきだからです lists nothing; すもももももももものうち lists 5.

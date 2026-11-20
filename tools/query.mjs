@@ -97,6 +97,7 @@ function show(q) {
     if (g.id === 'text') { // SPEC 17: the split line, then one row per segment: text -> headword (reading)
       console.log(`  [${g.title}] ${g.wordCount} words; ${(g.notes || []).join(' ')}`);
       console.log(`   split: ${g.segments.map((x) => (x.kind === 'word' ? `[${x.text}]` : x.kind === 'unknown' ? `?${x.text}?` : x.text)).join('')}`);
+      for (const a of g.alts || []) console.log(`   or:    ${a.chips.map((x) => `[${x.text}]`).join('')}  instead of ${a.instead.join(' / ')}`);
       for (const x of g.segments) {
         if (x.kind !== 'word') continue;
         const h = g.results[x.item];
@@ -166,6 +167,8 @@ const splitIs = (parts) => (r) => {
   const g = groupOf(r, 'text');
   return !!g && g.segments.filter((x) => x.kind === 'word').map((x) => x.text).join(' / ') === parts.join(' / ');
 };
+const altsOf = (r) => ((groupOf(r, 'text') || {}).alts || []).map((a) => `${a.chips.map((x) => x.text).join(' / ')} <- ${a.instead.join(' / ')}`);
+const hasAlt = (row) => (r) => altsOf(r).includes(row);
 const STUDY = [
   ['naiso', (r) => posOf(r, '内緒') === 0 && posOf(r, '内装') === 1 && r.suggestions?.[0]?.chip === 'naisho', '#1 内緒 1st, 内装 2nd, first chip naisho (SPEC 21.1)'],
   ['naisho', firstIs('内緒'), '#2 内緒 1st'],
@@ -234,6 +237,13 @@ const STUDY = [
   ['彼方の空まで', splitIs(['彼方', 'の', '空', 'まで']), '19.1 彼方 / の / 空 / まで'],
   ['食べさせられた子供たち', splitIs(['食べさせられた', '子供たち']), '19.1 食べさせられた / 子供たち'],
   ['国際宇宙ステーション計画', splitIs(['国際宇宙ステーション', '計画']), '19.1 国際宇宙ステーション / 計画'],
+  ['くるまでまつ', hasAlt('くる / まで <- くるま / で'), '29 other split くる / まで instead of くるま / で'],
+  ['ここではきものをぬぐ', hasAlt('で / はきもの <- では / きもの'), '29 other split で / はきもの instead of では / きもの'],
+  ['今日は学校に行きたくない', (r) => altsOf(r).length === 1 && hasAlt('今日 / は <- 今日は')(r), '29 the only other split is 今日 / は instead of 今日は (no 学 / 校)'],
+  ['彼は人気のない公園にいた', hasAlt('人気 / の / ない <- 人 / 気のない'), '29 other split 人気 / の / ない instead of 人 / 気のない'],
+  ['ばあさんどれい', hasAlt('ばあ / さんど / れい <- ばあさん / どれい'), '29 other split ばあ / さんど / れい (the report\'s example)'],
+  ['あなたのことがすきだからです', (r) => altsOf(r).length === 0 && !!groupOf(r, 'text'), '29 no other split (rare-word and names-only splits are not listed)'],
+  ['すもももももももものうち', (r) => altsOf(r).length === 5, '29 at most 5 other splits'],
 ];
 for (const [q, check, want] of STUDY) ACCEPT.push([q, 'fiction', check, want]);
 
