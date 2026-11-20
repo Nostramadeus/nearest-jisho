@@ -369,8 +369,8 @@ export function updateBarHtml(state) {
  * "Words in this text" (SPEC 17.4): line 1 = the text with a chip per word (unknown runs dim, separators kept),
  * then one item per distinct record in text order: a compact row for function words, else the normal card plus
  * the deinflection note and "N other entries for <segment>".
- * SPEC 29: under line 1, one row of chips per other way to split; a word only such a row uses sits in the list at
- * its place in the text (class "alt"), the first one of a split under the small label "Other split: <pieces>".
+ * SPEC 29: under line 1, one row of chips per other way to split; a word only such a row uses sits in the list where
+ * it starts in the text (class "alt"), under the small label "Other split: <pieces>" (once per run of such words).
  */
 export const ALT_HEAD = 'Other ways to split:';
 export const ALT_WORDS_HEAD = 'Other split:';

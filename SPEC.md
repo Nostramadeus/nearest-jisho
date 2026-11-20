@@ -927,9 +927,10 @@ alternative are looked for, per run of word characters, only among the first 60 
   chips, then, small and dim, `instead of <the chosen pieces joined by " / ">`.
 - A chip of such a row behaves like a chip of line 1: it scrolls to its word's item and flashes it.
 - The list stays in text order (ruling 2026-11-20, owner: no second block at the end, so a word from the middle of
-  a long text is found in the middle of the list). A word that only an alternative uses sits right after the chosen
-  words its alternative replaces; it has a coloured left edge, and the first such word of an alternative has the
-  small label `Other split: <its pieces joined by " / ">` above it. Same card / compact-row rules as 17.4.
+  a long text is found in the middle of the list). Every word is placed by the character it starts at; at the same
+  character the chosen word comes first (second ruling 2026-11-20: くるまでまつ lists くるま, くる, まで, で, まつ).
+  A word that only an alternative uses has a coloured left edge and the small label
+  `Other split: <its pieces joined by " / ">` above it, once per run of words of the same alternative. Same card / compact-row rules as 17.4.
   A record the chosen split also uses is shown once, at its chosen place, without the edge.
 - The count in the group title stays the word count of the chosen split.
 

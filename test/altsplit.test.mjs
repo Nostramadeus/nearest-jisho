@@ -75,12 +75,13 @@ test('the same change at two places is listed once; at most ALT_MAX rows; only a
   assert.deepEqual(alts(store, 'くるまでまつ', { wordLimit: 2 }), ['くる / まで <- くるま / で +0']);
 });
 
-test('the group: alternative rows point to items; their words sit right after the chosen words they replace', () => {
+test('the group: alternative rows point to items; every word sits where it starts in the text, the chosen one first', () => {
   const g = textGroup(store, 'くるまでまつ');
-  assert.deepEqual(g.segments.map((x) => `${x.text}>${x.item}`), ['くるま>0', 'で>1', 'まつ>4']);
-  assert.deepEqual(g.alts, [{ instead: ['くるま', 'で'], chips: [{ text: 'くる', item: 2 }, { text: 'まで', item: 3 }] }]);
-  assert.deepEqual(g.results.map((h) => [h.segment, !!h.alt, h.fn]), [['くるま', false, false], ['で', false, true], ['くる', true, false], ['まで', true, true], ['まつ', false, false]]);
-  assert.deepEqual(g.results.map((h) => h.altHead || ''), ['', '', 'くる / まで', '', '']); // the label once per split
+  assert.deepEqual(g.segments.map((x) => `${x.text}>${x.item}`), ['くるま>0', 'で>3', 'まつ>4']);
+  assert.deepEqual(g.alts, [{ instead: ['くるま', 'で'], chips: [{ text: 'くる', item: 1 }, { text: 'まで', item: 2 }] }]);
+  // くる starts where くるま starts: directly after it; まで starts before で
+  assert.deepEqual(g.results.map((h) => [h.segment, !!h.alt, h.fn]), [['くるま', false, false], ['くる', true, false], ['まで', true, true], ['で', false, true], ['まつ', false, false]]);
+  assert.deepEqual(g.results.map((h) => h.altHead || ''), ['', 'くる / まで', '', '', '']); // the label once per run of a split's words
   assert.equal(g.wordCount, 3); // the count in the title stays the chosen split's
   // a word the chosen split uses too stays one item at its chosen place: は is not repeated and not marked alt
   const g2 = textGroup(store, '今日はまつは');
@@ -98,10 +99,11 @@ test('rendered rows and the label above the extra words', () => {
   const g = textGroup(store, 'くるまでまつ');
   for (const h of g.results) h.rec = store.getRecord(h.pack, h.id);
   const html = groupsHtml([g]);
-  assert.match(html, /<\/p><div class="altsplits"><p class="althead">Other ways to split:<\/p><p class="altline"><span lang="ja"><button type="button" class="chip" data-item="2">くる<\/button><button type="button" class="chip" data-item="3">まで<\/button><\/span> <span class="instead">instead of <span lang="ja">くるま \/ で<\/span><\/span><\/p><\/div><p class="textnote">/);
-  assert.match(html, /<p class="altsub">Other split: <span lang="ja">くる \/ まで<\/span><\/p><div class="titem alt" id="t-2">/);
+  assert.match(html, /<\/p><div class="altsplits"><p class="althead">Other ways to split:<\/p><p class="altline"><span lang="ja"><button type="button" class="chip" data-item="1">くる<\/button><button type="button" class="chip" data-item="2">まで<\/button><\/span> <span class="instead">instead of <span lang="ja">くるま \/ で<\/span><\/span><\/p><\/div><p class="textnote">/);
+  assert.match(html, /<p class="altsub">Other split: <span lang="ja">くる \/ まで<\/span><\/p><div class="titem alt" id="t-1">/);
   assert.equal(html.match(/class="altsub"/g).length, 1);
-  assert.match(html, /<div class="titem alt" id="t-3"><a class="fnrow"/);
+  assert.match(html, /<div class="titem alt" id="t-2"><a class="fnrow"/);
+  assert.match(html, /<div class="titem" id="t-3"><a class="fnrow"/);
   assert.match(html, /<div class="titem" id="t-4"><article class="card"/);
   const g3 = textGroup(store, '学校でまつ');
   for (const h of g3.results) h.rec = store.getRecord(h.pack, h.id);

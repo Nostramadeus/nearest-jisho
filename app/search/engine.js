@@ -1085,8 +1085,8 @@ export const TEXT_MORE_NOTE = 'Showing the first 60 words.';
  * The "Words in this text" group (SPEC 17): segments in text order, one result per distinct record (at most 60
  * word segments), function words as compact rows. group.segments = line 1 (chips, unknown runs, separators).
  * SPEC 29: group.alts = the other ways to split, [{ instead: [chosen texts], chips: [{ text, item }] }]. A word only
- * they use is a result with alt: true, placed right after the chosen words its split replaces (29.3), so the list
- * stays in text order; the first such word of a split carries altHead (the split's pieces).
+ * they use is a result with alt: true, placed by where it starts in the text (29.3: after the chosen word that starts
+ * at the same character); it carries altHead (the split's pieces) unless the item above it is of the same split.
  */
 function textGroup(store, ctx, typed) {
   const { segments, truncated, alts } = segmentText(store, typed, { ranking: ctx.ranking, wordLimit: TEXT_SEGMENTS_MAX });
@@ -1108,8 +1108,7 @@ function textGroup(store, ctx, typed) {
     }
     return r;
   };
-  // Order (29.3): the chosen words at their place in the text; a word only another split uses sits right after the
-  // chosen words that split replaces (pos = the end of its stretch, before the chosen word that starts there).
+  // Order (29.3): every word by the character it starts at; at the same character the chosen word first.
   const entries = [];
   const chosenKeys = new Set();
   let shown = 0;
@@ -1117,13 +1116,13 @@ function textGroup(store, ctx, typed) {
     if (seg.kind !== 'word' || shown >= TEXT_SEGMENTS_MAX) continue;
     shown++;
     chosenKeys.add(keyOf(seg));
-    entries.push({ pos: [seg.start, 1, 0, 0], seg, ai: -1 });
+    entries.push({ pos: [seg.start, 0, 0, 0], seg, ai: -1 });
   }
   alts.forEach((a, ai) => a.segments.forEach((seg, si) => {
-    if (!chosenKeys.has(keyOf(seg))) entries.push({ pos: [a.end, 0, ai, si], seg, ai });
+    if (!chosenKeys.has(keyOf(seg))) entries.push({ pos: [seg.start, 1, ai, si], seg, ai });
   }));
   entries.sort((x, y) => { for (let k = 0; k < 4; k++) if (x.pos[k] !== y.pos[k]) return x.pos[k] - y.pos[k]; return 0; });
-  const headed = new Set(); // other splits whose first own word already carries the label
+  let lastAi = -1; // split of the item above (-1 = a chosen word)
   for (const e of entries) {
     const key = keyOf(e.seg);
     if (itemOf.has(key)) continue;
@@ -1131,8 +1130,9 @@ function textGroup(store, ctx, typed) {
     const r = resultOf(e.seg);
     if (e.ai >= 0) {
       r.alt = true;
-      if (!headed.has(e.ai)) { headed.add(e.ai); r.altHead = alts[e.ai].segments.map((x) => x.text).join(' / '); }
+      if (e.ai !== lastAi) r.altHead = alts[e.ai].segments.map((x) => x.text).join(' / ');
     }
+    lastAi = e.ai;
     results.push(r);
   }
   const line = [];
