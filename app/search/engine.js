@@ -5,7 +5,8 @@ import { fold } from './fold.js';
 import { prepareQuery, distance, budget, reasonFor, letterMask, popcount, INF, P_LIMITS, pRank } from './cost.js';
 import { kanaVariants, latinVoicedVariants, KANA_LABEL } from './kanavariants.js';
 import { deinflect, posBits } from './deinflect.js';
-import { segmentText, isFunctionWord, TEXT_MAX_CHARS, TEXT_MIN_CHARS } from './segment.js';
+import { segmentText, mixedWhole, isFunctionWord, TEXT_MAX_CHARS, TEXT_MIN_CHARS } from './segment.js';
+import { mixedNote } from './mixed.js';
 
 export const TITLES = {
   text: 'Words in this text',
@@ -19,6 +20,19 @@ export const STOP = new Set('a an the of to in on at for and or by with as is be
 
 const KANJI_RE = /[㐀-䶿一-鿿豈-﫿々-〇\u{20000}-\u{3134f}]/u;
 const LATIN_RE = /^[\p{Script=Latin}\s'\-]+$/u;
+
+/**
+ * SPEC 31: round brackets and the text inside them are left out of a query, so a word copied with its furigana
+ * (嵩(かさ)にきて) is searched as the word alone (嵩にきて). Also 《...》 with its ｜ start mark (Aozora ruby).
+ * Only closed pairs are removed. A query that would become empty is kept as typed.
+ */
+export function stripBrackets(q) {
+  let s = String(q), before;
+  do { before = s; s = s.replace(/\([^()]*\)|（[^（）]*）/g, ''); } while (s !== before);
+  if (/《[^《》]*》/.test(s)) s = s.replace(/《[^《》]*》/g, '').replace(/[|｜]/g, '');
+  s = s.trim();
+  return s || String(q);
+}
 
 /** 'kanji' | 'kana' | 'latin' (SPEC 4.3). Anything else (digits, symbols) is searched as written, like kanji. */
 export function queryKind(q) {
@@ -494,6 +508,24 @@ function deinflectHits(store, ctx, word, hits, shown = word) {
   }
 }
 
+// ---------- a word with part typed in kana, SPEC 30 ----------
+
+/**
+ * 嵩にきて -> 笠に着る (written 嵩に着る). The text splitter's weights decide (segment.js mixedWhole): the query counts
+ * as ONE such word when that word weighs at most 10 more than the best split. Hits: tier 0, after every true hit.
+ */
+function mixedHits(store, ctx, typed, hits) {
+  if (!hasKana(typed)) return;
+  const seg = mixedWhole(store, typed, { ranking: ctx.ranking });
+  if (!seg) return;
+  for (const c of seg.cands || []) {
+    put(hits, {
+      pack: 'words', id: c.id, tier: 0, sub: 3, cost: 0, c10: 1, via: c.via || 'mixed', base: c.base, typed,
+      space: 'k', key: c.base, keyLen: c.base.length,
+    });
+  }
+}
+
 // ---------- English search (space e), SPEC 4.9 ----------
 
 function cleanGloss(g) {
@@ -741,7 +773,8 @@ export function createEngine(store) {
 }
 
 export function search(store, query, opts = {}) {
-  const typed = String(query || '').normalize('NFKC').trim();
+  const asTyped = String(query || '').normalize('NFKC').trim();
+  const typed = opts.keepBrackets ? asTyped : stripBrackets(asTyped); // SPEC 31
   const out = { groups: [], didYouMean: null, kind: null, canon: '' };
   if (!typed) return out;
   const recentList = (opts.recent || []).map((s) => String(s).normalize('NFKC'));
@@ -769,6 +802,7 @@ export function search(store, query, opts = {}) {
   if (kind === 'kanji') {
     for (const p of jaPacks) writtenT02(store, ctx, p, typed, hits[p], false);
     deinflectHits(store, ctx, typed, hits.words);
+    if (!hasTier0(hits.words) && !hasTier0(hits.wikt)) mixedHits(store, ctx, typed, hits.words); // SPEC 30
     if (has('names')) writtenT02(store, ctx, 'names', typed, hits.names, false);
     if (ctx.phase === 'full') {
       for (const p of jaPacks) writtenContains(store, ctx, p, typed, hits[p]);
@@ -872,7 +906,8 @@ export function search(store, query, opts = {}) {
     const results = list.slice(0, lim);
     for (const h of results) {
       h.hl = highlight(store, h, ctx);
-      if (h.via && h.via !== 'contains') {
+      if (h.via === 'mixed') h.note = mixedNote(h.typed, h.base); // SPEC 30
+      else if (h.via && h.via !== 'contains') {
         const rec = store.getRecord(h.pack, h.id);
         const head = (rec.k || []).includes(h.base) ? h.base : ((rec.k || [])[0] || h.base);
         h.note = `${h.typed} is the ${h.via} form of ${head}`;
@@ -1105,6 +1140,10 @@ function textGroup(store, ctx, typed) {
       r.base = seg.base;
       const head = (rec.k || []).includes(seg.base) ? seg.base : ((rec.k || [])[0] || seg.base);
       r.note = `${seg.text} is the ${seg.via} form of ${head}`;
+    } else if (seg.rule === 5) { // SPEC 30
+      r.base = seg.base;
+      r.via = 'mixed';
+      r.note = mixedNote(seg.text, seg.base);
     }
     return r;
   };

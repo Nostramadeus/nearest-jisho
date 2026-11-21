@@ -160,7 +160,7 @@ function resolveGroups(res) {
 }
 
 function runSearch(m, phase) {
-  const opts = { ranking: m.ranking, limit: m.limit || 50, groupLimits: m.groupLimits || {}, recent: m.recent || [], phase };
+  const opts = { ranking: m.ranking, limit: m.limit || 50, groupLimits: m.groupLimits || {}, recent: m.recent || [], phase, keepBrackets: !!m.keepBrackets };
   const res = resolveGroups(search(store, m.query, opts));
   post({ type: 'result', seq: m.seq, phase, query: m.query, result: res, loaded: { ...loaded } });
 }

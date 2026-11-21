@@ -938,3 +938,55 @@ alternative are looked for, per run of word characters, only among the first 60 
 くるまでまつ lists くる / まで; ここではきものをぬぐ lists で / はきもの; 今日は学校に行きたくない lists only 今日 / は;
 彼は人気のない公園にいた lists 人気 / の / ない; ばあさんどれい lists ばあ / さんど / れい;
 あなたのことがすきだからです lists nothing; すもももももももものうち lists 5.
+
+## 30. A word typed partly in kana (added 2026-11-21, owner's report on 嵩にきて)
+Owner's report: 嵩にきて found nothing but a split into 嵩 / に / き / て, although 嵩に着る and 笠に着て both worked.
+Cause: the written-form search and the deinflection only knew the spellings the dictionary lists. A spelling with
+one of its kanji typed as kana (着 as き) was no key.
+
+### 30.1 Rule
+- A text piece F is "K with part written in kana" when a record has a written form K and a reading R such that:
+  every kana of K stands in F and in R; every other character of K is either kept in F, or replaced in F by exactly
+  the kana it takes in R; at least one character is replaced; at least one kanji is kept.
+  Hiragana and katakana count as equal. 嵩にきる = 嵩に着る (かさにきる), 気もち = 気持ち, こん虫 = 昆虫, 友だち = 友達.
+- Inflected forms: the piece is deinflected first (same rules and part-of-speech check as 4.8), so 嵩にきて and
+  取りけした are found. Note of such a hit: the usual deinflection note, naming the written form
+  (`嵩にきて is the te-form form of 嵩に着る`). Without inflection: `<typed> is <written form> with part written in kana`.
+- When several written forms of one record fit, the longest is named (気持ち, not 気持).
+
+### 30.2 Where it applies
+- Text splitter (17, 19): rule 5, tried after rules 1 to 3 (words, deinflection, Wiktionary) and before rule 4 (names).
+  Edge weight 10 + P(rank) + 8. So a pasted sentence shows 嵩にきて as one piece.
+- Search of a KANJI query without a tier-0 hit: when the whole query (2 to 12 characters) is such a word and its edge
+  weighs at most 10 more than the best split of the query, the record is a tier-0 hit (after every true hit) and the
+  "Words in this text" group is not shown. こん虫 lists 昆虫 although こん / 虫 is the lighter split.
+- A true written form always wins: 友だち and 子ども are dictionary spellings and are found as before.
+
+### 30.3 Guard against particles
+- A LAST kanji of K typed as ONE kana out of は が を に で と も の へ や か ね よ な is refused:
+  首と is 首 + と, never 首都; 彼が is never 彼我; 日ので is never 日の出.
+
+### 30.4 Speed and limits
+- The splitter does not test every piece against every key. For each kanji of the text it walks the keys that hold
+  that kanji (list built once per kanji, 300 kanji remembered) and lays each key over the text around it. A kanji
+  typed as kana is checked first against that kanji's own readings in the kanji data (on, kun stem, name readings;
+  voicing ignored; small っ for readings in つ く ち き). Only keys that pass get their record read (6000 remembered).
+- Known limit: a word read as a whole (今日 = きょう) is not found when typed partly in kana, because its kana are no
+  reading of the single kanji. Without kanji data the check is skipped (slower, same results otherwise).
+- A kanji stands for at most 6 kana; an inflected ending is at most 8 kana.
+- Measured on the real packs 2026-11-21 (node, PC): 96-character text 45 ms (6 ms before), 500 characters 94 to
+  139 ms (18 to 35 ms before).
+- Code: `app/search/mixed.js` (`mixedSpans`, `mixedNote`), `segment.js` (rule 5, `mixedWhole`), `engine.js` (`mixedHits`).
+
+### 30.5 Acceptance (real packs, `tools/query.mjs --accept`)
+嵩にきて lists 笠に着る first as a te-form; こん虫 lists 昆虫 first; 首と肩 stays 首 / と / 肩.
+Checked by hand on the real packs the same day: 30 partly-kana spellings found, 30 kanji + particle inputs unchanged.
+
+## 31. Brackets and the text inside them are left out of a query (added 2026-11-21, owner's request)
+- Why: ReadEra copies a word with its furigana as `嵩(かさ)にきて`.
+- Setting `Ignore brackets and the text inside them` (Settings > Search, checkbox `ignorebrackets`, storage key
+  `nj-ignore-brackets`), ON by default (coordinator's choice: pasted furigana never helps a search).
+- When on, `stripBrackets()` in `engine.js` removes every closed pair of round brackets, half or full width, with its
+  content, nested pairs too, and Aozora ruby `《...》` together with its start mark `｜`. A bracket that is not closed
+  stays. A query that would become empty is kept as typed. The search box keeps showing what was typed.
+- When off, the page sends `keepBrackets: true` and the query is searched as typed.

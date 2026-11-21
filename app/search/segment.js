@@ -3,6 +3,7 @@
 import { toHiragana, isKana } from './romaji.js';
 import { deinflect, posBits } from './deinflect.js';
 import { pRank } from './cost.js';
+import { mixedSpans } from './mixed.js';
 
 export const TEXT_MAX_CHARS = 500;
 export const TEXT_MIN_CHARS = 3;
@@ -29,8 +30,8 @@ function exact(store, pack, form) {
   return i < 0 ? [] : Array.from(ks.idsOf(i));
 }
 
-/** Rule 1-3 candidates for substring s: [{ pack, id, rule, via?, base? }] of the first rule that matches. */
-function rulesOneToThree(store, s) {
+/** Rule 1-3 and 5 candidates for substring s: [{ pack, id, rule, via?, base? }] of the first rule that matches. */
+function rulesOneToThree(store, s, mixed, at) {
   // 1. written form in words, or for kana its hiragana form as a kana form
   const c1 = new Set(exact(store, 'words', s));
   if (allKana(s)) {
@@ -41,7 +42,8 @@ function rulesOneToThree(store, s) {
   // 2. deinflection to a verified words record
   const c2 = [];
   const seen = new Set();
-  for (const cand of deinflect(allKana(s) ? toHiragana(s) : s)) {
+  const forms = deinflect(allKana(s) ? toHiragana(s) : s);
+  for (const cand of forms) {
     for (const id of exact(store, 'words', cand.form)) {
       if (seen.has(id)) continue;
       const rec = store.getRecord('words', id);
@@ -54,7 +56,12 @@ function rulesOneToThree(store, s) {
   if (c2.length) return c2;
   // 3. written form in the Wiktionary pack
   const c3 = store.has('wikt') ? exact(store, 'wikt', s) : [];
-  return c3.map((id) => ({ pack: 'wikt', id, rule: 3 }));
+  if (c3.length) return c3.map((id) => ({ pack: 'wikt', id, rule: 3 }));
+  // 5. a word with part typed in kana (SPEC 30), found for the whole run by mixedSpans(). base = its written form
+  const hits = mixed ? mixed.get(at) : null;
+  if (!hits) return [];
+  const direct = hits.filter((m) => !m.via); // as typed before deinflected
+  return (direct.length ? direct : hits).map((m) => ({ pack: 'words', id: m.id, rule: 5, via: m.via, base: m.key }));
 }
 
 /** One-kana rule (17.2): keep only records whose first sense is a function word; none -> no match. */
@@ -65,7 +72,7 @@ function oneKanaFilter(store, s, cands) {
 
 /** 17.3: true written-form match before a deinflected one, then rank, then record id. */
 function choose(store, cands, ranking) {
-  const key = (c) => [c.rule === 2 ? 1 : 0, store.rank(c.pack, c.id, ranking), c.pack === 'words' ? 0 : c.pack === 'wikt' ? 1 : 2, c.id];
+  const key = (c) => [c.via ? 1 : 0, store.rank(c.pack, c.id, ranking), c.pack === 'words' ? 0 : c.pack === 'wikt' ? 1 : 2, c.id];
   return cands.slice().sort((a, b) => {
     const x = key(a), y = key(b);
     for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] - y[i];
@@ -74,11 +81,12 @@ function choose(store, cands, ranking) {
 }
 
 export const UNKNOWN_WEIGHT = 40;
-const EXTRA = { 1: 0, 2: 4, 3: 6, 4: 8 }; // SPEC 19.1: + 4 deinflection only, + 6 wikt only, + 8 names only
+// SPEC 19.1: + 4 deinflection only, + 6 wikt only, + 8 names only; SPEC 30: + 8 part typed in kana
+const EXTRA = { 1: 0, 2: 4, 3: 6, 4: 8, 5: 8 };
 
-/** Candidate records of one edge: the first matching rule 1, 2, 3 (one-kana rule applied), else 4 (names, L >= 2). */
-function edgeCands(store, s, L) {
-  const c = oneKanaFilter(store, s, rulesOneToThree(store, s));
+/** Candidate records of one edge: the first matching rule 1, 2, 3, 5 (one-kana rule applied), else 4 (names, L >= 2). */
+function edgeCands(store, s, L, mixed, at) {
+  const c = oneKanaFilter(store, s, rulesOneToThree(store, s, mixed, at));
   if (c.length) return c;
   if (L >= 2 && store.has('names')) return exact(store, 'names', s).map((id) => ({ pack: 'names', id, rule: 4 }));
   return [];
@@ -147,15 +155,32 @@ export function segmentText(store, text, { ranking = 'fiction', wordLimit = Infi
   return { segments, truncated, alts };
 }
 
+/**
+ * SPEC 30.2: is the whole text ONE word with part typed in kana (嵩にきて, こん虫)? Returns that word segment when
+ * its single edge weighs at most `margin` more than the lowest-weight split of the text, else null.
+ */
+export function mixedWhole(store, text, { ranking = 'fiction', margin = ALT_MARGIN } = {}) {
+  const chars = Array.from(String(text));
+  const n = chars.length;
+  if (n < 2 || n > SEGMENT_MAX_LEN || !chars.every(isWordChar)) return null;
+  const edges = runEdges(store, chars, 0, n, ranking);
+  const whole = edges[0].find((e) => e.L === n && e.seg.kind === 'word');
+  if (!whole || whole.seg.rule !== 5) return null;
+  const best = bestPath(edges, n).reduce((sum, e) => sum + e.w, 0);
+  return whole.w <= best + margin ? whole.seg : null;
+}
+
 /** edges[k] = every edge { L, w, seg } that starts at chars[from + k] (the last one is the "unknown" edge). */
 function runEdges(store, chars, from, to, ranking) {
   const n = to - from;
   const edges = Array.from({ length: n }, () => []);
+  // SPEC 30: partly-kana words of the run, Map(start * 64 + length -> hits); positions count from the run's start
+  const mixed = mixedSpans(store, 'words', from === 0 && to === chars.length ? chars : chars.slice(from, to));
   for (let k = 0; k < n; k++) {
     const maxL = Math.min(SEGMENT_MAX_LEN, n - k);
     for (let L = 1; L <= maxL; L++) {
       const s = chars.slice(from + k, from + k + L).join('');
-      const cands = edgeCands(store, s, L);
+      const cands = edgeCands(store, s, L, mixed.size ? mixed : null, k * 64 + L);
       if (!cands.length) continue;
       const sorted = choose(store, cands, ranking);
       const best = sorted[0];
@@ -163,6 +188,7 @@ function runEdges(store, chars, from, to, ranking) {
       const w = oneKanaFn ? 10 : 10 + pRank(store.rank(best.pack, best.id, ranking)) + EXTRA[best.rule];
       const seg = { kind: 'word', text: s, start: from + k, end: from + k + L, pack: best.pack, id: best.id, rule: best.rule, others: sorted.length - 1, weight: w };
       if (best.via) { seg.via = best.via; seg.base = best.base; }
+      if (best.rule === 5) { seg.base = best.base; seg.cands = sorted; } // SPEC 30: every record of this reading
       edges[k].push({ L, w, seg });
     }
     edges[k].push({ L: 1, w: UNKNOWN_WEIGHT, seg: { kind: 'unknown', text: chars[from + k] } });

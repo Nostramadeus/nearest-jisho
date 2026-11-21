@@ -102,7 +102,7 @@ function runSearch(phase) {
   S.seq++;
   worker.postMessage({
     type: 'search', seq: S.seq, query: S.query, ranking: S.ranking, limit: DEFAULT_LIMIT,
-    groupLimits: { names: NAMES_FIRST, ...S.groupLimits }, recent: S.recent, phase,
+    groupLimits: { names: NAMES_FIRST, ...S.groupLimits }, recent: S.recent, phase, keepBrackets: !S.ignoreBrackets,
   });
 }
 
@@ -424,6 +424,20 @@ for (const r of document.querySelectorAll('input[name="theme"]')) {
   });
 }
 applyTheme();
+
+// "Ignore brackets and the text inside them" (SPEC 31), default on; the worker leaves them out of the query
+S.ignoreBrackets = store.get('nj-ignore-brackets', true) !== false;
+{
+  const box = $('ignorebrackets');
+  if (box) {
+    box.checked = S.ignoreBrackets;
+    box.addEventListener('change', () => {
+      S.ignoreBrackets = box.checked;
+      store.set('nj-ignore-brackets', S.ignoreBrackets);
+      if (S.query) runSearch();
+    });
+  }
+}
 
 // "Romaji on result cards" (SPEC 26.1), default on; a class on <html> hides the line, no re-render needed
 S.cardRomaji = store.get('nj-card-romaji', true) !== false;

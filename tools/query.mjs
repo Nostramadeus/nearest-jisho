@@ -118,6 +118,10 @@ const SLANG = new Set(['sl', 'net-sl', 'm-sl', 'col', 'vulg']);
 const firstResult = (res) => res.groups[0]?.results[0];
 const groupOf = (res, id) => res.groups.find((g) => g.id === id);
 const ACCEPT = [
+  ['嵩にきて', 'fiction', (r) => r.groups[0].id === 'words' && head(firstResult(r)) === '笠に着る' && firstResult(r).via === 'te-form', '笠に着る first for the partly-kana te-form (SPEC 30)'],
+  ['嵩(かさ)にきて', 'fiction', (r) => r.groups[0].id === 'words' && head(firstResult(r)) === '笠に着る', 'furigana in brackets is left out (SPEC 31)'],
+  ['こん虫', 'fiction', (r) => r.groups[0].id === 'words' && head(firstResult(r)) === '昆虫' && firstResult(r).via === 'mixed', '昆虫 first for こん虫 (SPEC 30.2)'],
+  ['首と肩', 'fiction', (r) => r.groups[0].id === 'text' && r.groups[0].segments.map((x) => x.text).join('/') === '首/と/肩', '首と stays 首 + と, not 首都 (SPEC 30.3)'],
   ['覆', 'fiction', (r) => groupOf(r, 'words').results.slice(0, 5).map(head).includes('覆す'), '覆す in the top 5 for the single kanji (SPEC 28.2)'],
   ['覆さん', 'fiction', (r) => head(firstResult(r)) === '覆す' && firstResult(r).via === 'negative (-n)', '覆す first, as the negative (-n) form (SPEC 28.3)'],
   ['kutsugaesan', 'fiction', (r) => head(firstResult(r)) === '覆す' && firstResult(r).via === 'negative (-n)', '覆す first, as the negative (-n) form (SPEC 28.3)'],
