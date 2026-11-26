@@ -39,7 +39,7 @@ test('gear twice returns to the previous view (entry page)', async () => {
   await tick(10);
   assert.equal(p.view(), 'entry');
   assert.equal(p.url, '#w=%E8%BE%9E%E6%9B%B8&r=%E3%81%98%E3%81%97%E3%82%87&p=words');
-  assert.equal(p.index, 0); // back at the first step: nothing left over in the history
+  assert.equal(p.index, 1); // back at the entry's step; below it only the start screen (SPEC 33)
 });
 
 test('star while in Settings switches with replaceState; one Back returns to the view before Settings', async () => {

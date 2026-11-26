@@ -33,7 +33,7 @@ class El {
 export const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 
 /** Load app/main.js on a fake page at `hash`. store = fixture PackStore (for the fake worker's answers). */
-export async function makePage(store, hash = '') {
+export async function makePage(store, hash = '', { win = {} } = {}) {
   if (current) current.dispose();
   const timers = new Set();
   globalThis.setTimeout = (f, ms, ...a) => { const id = realSetTimeout(f, ms, ...a); timers.add(id); return id; };
@@ -81,6 +81,7 @@ export async function makePage(store, hash = '') {
     get scrollY() { return scrollY; },
     scrollTo: (x, y) => { scrollY = y; },
     getSelection: () => '',
+    ...win, // e.g. a fake Capacitor bridge (SPEC 33)
   };
   Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true, writable: true });
   globalThis.Worker = class {

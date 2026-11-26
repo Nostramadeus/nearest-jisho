@@ -127,13 +127,26 @@ function applyQuery(q, focus) {
 
 function emptyAddress() { return location.pathname + location.search; }
 
+/**
+ * SPEC 33: the ONE way a new visible state gets its history step. The state being left keeps its scroll position
+ * (Back returns to it, SPEC 32.10); then the new state is pushed. Every path that opens a view uses it: a committed
+ * query, an entry page, Favorites / Settings, links inside the list, the entry page or Favorites.
+ */
+function pushStep(url, state = null) {
+  history.replaceState({ ...(history.state || {}), scroll: window.scrollY }, '', location.href);
+  history.pushState(state, '', url);
+}
+/** Scroll position stored in the current history entry (SPEC 32.10, 33), or null. */
+function storedScroll(ev) {
+  const st = history.state || (ev && ev.state) || null;
+  return st && typeof st.scroll === 'number' ? st.scroll : null;
+}
+
 /** Write S.query to the history: a new entry when the current one is settled (or push is forced), else in place. */
 function writeQuery(prev, forcePush) {
   const url = S.query ? `#q=${encodeURIComponent(S.query)}` : emptyAddress();
   if (settled || forcePush) {
-    // SPEC 32.10: Back returns to the exact scroll position of the list it leaves
-    if (forcePush !== 'view') history.replaceState({ scroll: window.scrollY }, '', location.href);
-    history.pushState(null, '', url);
+    pushStep(url); // SPEC 33 (the scroll position of the state it leaves is kept, SPEC 32.10)
     below = S.view === 'search' && forcePush !== 'view' ? prev : null;
     twin = false;
   } else {
@@ -185,12 +198,13 @@ function route(ev) {
   settled = true; below = null; twin = false; // every entry reached by Back / Forward or a link is a state of its own
   clearTimeout(settleT);
   const e = parseEntryHash(location.hash);
+  const y0 = storedScroll(ev); // SPEC 33: every state comes back with its scroll position
   if (e) {
-    if (S.view !== 'entry' || !S.entry || entryHash(S.entry) !== entryHash(e)) showEntry(e);
+    if (S.view !== 'entry' || !S.entry || entryHash(S.entry) !== entryHash(e)) { showEntry(e); S.entryRestore = y0; }
     return;
   }
-  if (location.hash === '#fav') { if (S.view !== 'fav') showFavorites(); return; }
-  if (location.hash === '#settings') { if (S.view !== 'settings') showSettings(); return; }
+  if (location.hash === '#fav') { if (S.view !== 'fav') { showFavorites(); if (y0 !== null) window.scrollTo(0, y0); } return; }
+  if (location.hash === '#settings') { if (S.view !== 'settings') { showSettings(); if (y0 !== null) window.scrollTo(0, y0); } return; }
   const wasEntry = S.view !== 'search';
   const q = readHash();
   // Back from an entry that repeated the query of the step below it: nothing would change on screen, go one more step
@@ -198,15 +212,14 @@ function route(ev) {
   if (wasEntry) showSearchView();
   if (q !== S.query) {
     // SPEC 32.10: a list reached by Back comes back at its old scroll position once its results are in
-    const y = ev && ev.state && typeof ev.state.scroll === 'number' ? ev.state.scroll : null;
-    S.restore = y !== null && q.trim() ? { q, y } : null;
+    S.restore = y0 !== null && q.trim() ? { q, y: y0 } : null;
     applyQuery(q);
+    if (!q.trim()) window.scrollTo(0, y0 === null ? 0 : y0); // the start screen has no results to wait for
     return;
   }
   if (wasEntry) {
     if (!q.trim()) renderEmpty();
-    const y = ev && ev.state && typeof ev.state.scroll === 'number' ? ev.state.scroll : 0;
-    window.scrollTo(0, y); // same query, same list, same scroll position
+    window.scrollTo(0, y0 === null ? 0 : y0); // same query, same list, same scroll position
   }
 }
 window.addEventListener('popstate', route);
@@ -215,11 +228,7 @@ window.addEventListener('hashchange', route);
 // ---------- entry page (SPEC 10.2) ----------
 function openEntry(addr) {
   if (!addr) return;
-  if (S.view === 'search') {
-    // remember where the list was, so Back returns to the same scroll position
-    history.replaceState({ scroll: window.scrollY }, '', location.href);
-  }
-  history.pushState({ view: 'entry' }, '', entryHash(addr));
+  pushStep(entryHash(addr), { view: 'entry' }); // SPEC 33: from the list, another entry, Favorites
   settled = true; below = null; twin = false;
   showEntry(addr);
 }
@@ -243,6 +252,7 @@ function setView(v) {
 }
 
 function showEntry(addr) {
+  S.entryRestore = null;
   setView('entry');
   S.entry = addr;
   wikiEl.hidden = true;
@@ -265,6 +275,8 @@ function onEntry(m) {
     ? entryHtml(m.data, renderOpts())
     : `<p class="empty">This entry was not found in the current dictionary data.</p>`;
   showSayButtons();
+  // SPEC 33: an entry page reached by Back comes back at its old scroll position
+  if (S.entryRestore !== null && S.entryRestore !== undefined) { window.scrollTo(0, S.entryRestore); S.entryRestore = null; }
 }
 
 function showSearchView() {
@@ -289,8 +301,7 @@ function togglePanel(v) {
     SHOW[v]();
     return;
   }
-  if (S.view === 'search') history.replaceState({ scroll: window.scrollY }, '', location.href);
-  history.pushState({ view: v }, '', `#${v}`);
+  pushStep(`#${v}`, { view: v }); // SPEC 33
   S.panelPushed = true;
   SHOW[v]();
 }
@@ -363,15 +374,28 @@ async function copyText(text) {
   return ok;
 }
 
+/**
+ * SPEC 33: a link to another state inside a view (#w= entry, #q= search) takes the same history step as every other
+ * way of opening a view. Returns true when it handled the click.
+ */
+function followLink(e) {
+  const a = e.target.closest('a[href^="#w="], a[href^="#q="]');
+  if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return false;
+  e.preventDefault();
+  const href = a.getAttribute('href');
+  if (href.startsWith('#w=')) { if (S.query.trim() && S.view === 'search') addRecent(S.query); openEntry(parseEntryHash(href)); return true; }
+  let q = href.slice(3);
+  try { q = decodeURIComponent(q); } catch { /* keep raw */ }
+  setQuery(q, { push: true });
+  return true;
+}
+
 favViewEl.addEventListener('click', (e) => {
   const star = e.target.closest('button.star');
   if (star) { onStar(star); return; }
   const copy = e.target.closest('button[data-act="copy-favorites"]');
   if (copy) { copyFavorites(copy); return; }
-  const a = e.target.closest('a[href^="#w="]');
-  if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
-  e.preventDefault();
-  openEntry(parseEntryHash(a.getAttribute('href')));
+  followLink(e);
 });
 
 /** SPEC 28.1: copy button; the icon turns into a check mark (or a cross when the clipboard is blocked) for 1.5 s. */
@@ -389,10 +413,7 @@ entryEl.addEventListener('click', (e) => {
   if (cp) { onCopy(cp); return; }
   const say = e.target.closest('button.say');
   if (say) { if (tts.speak) tts.speak(say.dataset.say); return; }
-  const a = e.target.closest('a[href^="#w="]');
-  if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
-  e.preventDefault();
-  openEntry(parseEntryHash(a.getAttribute('href')));
+  followLink(e);
 });
 
 // ---------- recent ----------
@@ -813,23 +834,8 @@ resultsEl.addEventListener('click', (e) => {
     }
     return;
   }
-  const qlink = e.target.closest('a[href^="#q="]');
-  if (qlink) { // SPEC 32.10: same as a suggestion chip, so the list's scroll position is saved for Back
-    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
-    e.preventDefault();
-    let q = qlink.getAttribute('href').slice(3);
-    try { q = decodeURIComponent(q); } catch { /* keep raw */ }
-    setQuery(q, { push: true });
-    return;
-  }
-  const fnrow = e.target.closest('a.fnrow');
-  if (fnrow) {
-    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
-    e.preventDefault();
-    if (S.query.trim()) addRecent(S.query);
-    openEntry(parseEntryHash(fnrow.getAttribute('href')));
-    return;
-  }
+  // SPEC 33: "N other entries for X", a kanji row (#q=) and a function-word row (#w=): one history step each
+  if (e.target.closest('a[href^="#q="], a.fnrow')) { followLink(e); return; }
   const card = e.target.closest('.card');
   if (!card) return;
   if (S.query.trim()) addRecent(S.query); // a tap counts as a finished search
@@ -888,6 +894,31 @@ if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
   navigator.serviceWorker.register('./sw.js').catch(() => { /* offline cache unavailable */ });
 }
 if (document.readyState === 'complete') showShellInfo(); else window.addEventListener('load', showShellInfo);
+// SPEC 33: a first visit straight to a word, a search or a panel gets the start screen below it, so Back never leaves
+// the app before the start screen.
+if (location.hash && history.length === 1) {
+  const h = location.hash;
+  history.replaceState(null, '', emptyAddress());
+  history.pushState(null, '', h);
+}
+// SPEC 33: Android app (Capacitor): the back gesture goes one history step back; it leaves the app only from the empty
+// start screen. Needs the @capacitor/app plugin (packaging/android/package.json); without it the gesture closes the app.
+function nativeBack(canGoBack, exitApp) {
+  if (canGoBack) { history.back(); return; }
+  if (S.view !== 'search' || S.query.trim()) { // the first step is not the start screen: show it
+    history.replaceState(null, '', emptyAddress());
+    route();
+    return;
+  }
+  exitApp();
+}
+{
+  const C = window.Capacitor;
+  const App = C && C.Plugins && C.Plugins.App;
+  if (App && typeof App.addListener === 'function') {
+    App.addListener('backButton', (ev) => nativeBack(!!(ev && ev.canGoBack), () => { Promise.resolve(App.exitApp()).catch(() => {}); }));
+  }
+}
 const initialEntry = parseEntryHash(location.hash);
 if (initialEntry) { renderEmpty(); showEntry(initialEntry); } // shows the loading line until the pack is in
 else if (location.hash === '#fav') { renderEmpty(); showFavorites(); }

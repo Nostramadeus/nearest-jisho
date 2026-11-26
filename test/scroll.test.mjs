@@ -44,7 +44,7 @@ test('a link to another search inside the list is a history step; Back restores 
   const len = p.historyLength;
   const href = `#q=${encodeURIComponent('学校')}`;
   const link = { getAttribute: (k) => (k === 'href' ? href : null) };
-  p.els.results.fire('click', { target: { closest: (sel) => (sel === 'a[href^="#q="]' ? link : null) } });
+  p.els.results.fire('click', { target: { closest: (sel) => (sel.includes('a[href^="#q="]') ? link : null) } });
   await tick(30);
   assert.equal(p.url, href);
   assert.equal(p.historyLength, len + 1);
