@@ -59,7 +59,7 @@ const WORDS = [
   [{ k: ['振り'], r: ['ふり'], c: 1, s: [N(['n'], ['swing'])] }, 3000, 3000],
   [{ k: ['帰る'], r: ['かえる'], c: 1, s: [N(['v5r', 'vi'], ['to return'])] }, 200, 200],
   [{ k: ['太鼓'], r: ['たいこ'], c: 1, s: [N(['n'], ['drum'])] }, 9000, 9000],
-  [{ k: ['新'], r: ['しん', 'にい'], c: 1, s: [N(['n'], ['new'])] }, 563, 563], // 39: SPEC 34.20
+  [{ k: ['新'], r: ['しん', 'にい'], c: 1, s: [{ p: ['n'], g: ['new'], m: ['uk'] }] }, 563, 563], // 39: SPEC 34.20 (uk too)
   [{ r: ['に'], c: 1, s: [N(['prt'], ['in, at'])] }, 5, 5],
   [{ k: ['分'], r: ['ぶん'], c: 1, s: [N(['n', 'n-suf'], ['part'])] }, 504, 504], // 41: SPEC 34.21
   [{ k: ['分'], r: ['ふん'], c: 1, s: [N(['n'], ['minute (unit of time)'])] }, 1665, 1665],
@@ -298,7 +298,7 @@ test('34.14 warm-up in slices builds the same indexes as warm()', async () => {
   } finally { rmSync(dir2, { recursive: true, force: true }); }
 });
 
-test('34.20 a kana piece that is a later reading of a non-uk kanji word weighs 8 more: にいた = に / いた', () => {
+test('34.20 a kana piece that is a later reading of a kanji word (uk or not) weighs 8 more: にいた = に / いた', () => {
   assert.deepEqual(words('にいた').map((x) => x.text), ['に', 'いた']);
   assert.equal(head('words', words('にいた')[1].id), '居る');
   assert.equal(words('にい')[0].weight, 10 + 0 + 8, 'にい = 新 (P 0) + 8');

@@ -387,8 +387,7 @@ export async function buildWikt({ romaji, jiten, wide = true }) {
       const entry = { src: 'we', hw, readings, slang, labelled: false };
       const keepOld = wiktKeep(entry, keepCtx, false);
       const keepWide = wiktKeep(entry, keepCtx, true);
-      if (keepWide && !keepOld) wideExtra.we++;
-      if (!(wide ? keepWide : keepOld)) return;
+      if (!keepWide && !keepOld) return;
       const kept = [];
       for (const s of senses) {
         const tags = s.tags || [];
@@ -403,6 +402,9 @@ export async function buildWikt({ romaji, jiten, wide = true }) {
         if (kept.length >= 6) break;
       }
       if (!kept.length) return;
+      // SPEC 34.8: counted only for records that are really written (an entry without glosses is never one)
+      if (keepWide && !keepOld) wideExtra.we++;
+      if (!(wide ? keepWide : keepOld)) return;
       const rec = { src: 'we', k: [e.word] };
       if (readings.length) rec.r = readings;
       rec.u = `https://en.wiktionary.org/wiki/${urlPart(e.word)}#Japanese`;
@@ -443,8 +445,7 @@ export async function buildWikt({ romaji, jiten, wide = true }) {
       const entry = { src: 'wj', hw: nfkc(e.word), readings, slang, labelled };
       const keepOld = wiktKeep(entry, keepCtx, false);
       const keepWide = wiktKeep(entry, keepCtx, true);
-      if (keepWide && !keepOld) wideExtra.wj++;
-      if (!(wide ? keepWide : keepOld)) return;
+      if (!keepWide && !keepOld) return;
       const kept = [];
       for (const s of senses) {
         const g = (s.glosses || []).filter(Boolean);
@@ -459,6 +460,8 @@ export async function buildWikt({ romaji, jiten, wide = true }) {
         kept.push(o);
       }
       if (!kept.length) return;
+      if (keepWide && !keepOld) wideExtra.wj++;
+      if (!(wide ? keepWide : keepOld)) return;
       const rec = { src: 'wj', k: [e.word] };
       if (readings.length) rec.r = readings;
       rec.u = `https://ja.wiktionary.org/wiki/${urlPart(e.word)}`;

@@ -145,8 +145,8 @@ function choose(store, cands, ranking) {
 
 export const UNKNOWN_WEIGHT = 40;
 /**
- * SPEC 34.20: extra weight of a kana-only piece that matches a words record with a written (kanji) form, whose first
- * sense is not tagged uk (usually kana), through a reading that is not the record's first reading (にい for 新 = さら /
+ * SPEC 34.20: extra weight of a kana-only piece that matches a words record with a written (kanji) form through a
+ * reading that is not the record's first reading, whether or not it is tagged uk (third ruling) (にい for 新 = さら /
  * あら / にい: the record's frequency belongs to its written form, not to this kana spelling).
  */
 export const KANA_READING_EXTRA = 8;
@@ -154,7 +154,6 @@ function laterKanaReading(store, c, s) {
   if (c.pack !== 'words' || !allKana(s)) return false;
   const rec = store.getRecord(c.pack, c.id);
   if (!rec.k || !rec.k.length || !rec.r || !rec.r.length) return false;
-  if (((rec.s && rec.s[0] && rec.s[0].m) || []).includes('uk')) return false;
   return toHiragana(rec.r[0]) !== toHiragana(s);
 }
 // SPEC 19.1: + 4 deinflection only, + 6 wikt only, + 8 names only; SPEC 30: + 8 part typed in kana
@@ -394,7 +393,7 @@ function runEdges(store, chars, from, to, ranking, digits = 0) {
       const best = sorted[0];
       const oneKanaFn = L === 1 && allKana(s);
       // SPEC 34.3: a partly-kana (rule 5) or Wiktionary (rule 3) word that is also deinflected adds the +4 of rule 2.
-      // SPEC 34.20: a kana piece that is a later reading of a kanji word not usually written in kana adds KANA_READING_EXTRA.
+      // SPEC 34.20: a kana piece that is a later reading of a kanji word adds KANA_READING_EXTRA.
       const w = oneKanaFn ? 10 : 10 + pRank(store.rank(best.pack, best.id, ranking)) + EXTRA[best.rule] + ((best.rule === 5 || best.rule === 3) && best.via ? EXTRA[2] : 0)
         + (best.rule === 1 && laterKanaReading(store, best, s) ? KANA_READING_EXTRA : 0);
       const seg = { kind: 'word', text: s, start: from + k, end: from + k + L, pack: best.pack, id: best.id, rule: best.rule, others: sorted.length - 1, weight: w };

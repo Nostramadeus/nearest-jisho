@@ -1149,7 +1149,9 @@ page tests `test/audit-page.test.mjs`, acceptance rows "34.x" in `tools/query.mj
   that label as a tag. ON by default since the second ruling of 2026-11-26 (the wikt pack is small next to words and
   names, and it holds the words JMdict lacks); `--no-wikt-wide` turns it off. The CI build of df4340b (rule off) logged
   `would add 57719 records (we 14278, wj 43441) = 266% of the current pack` (21,670 records, 6.6 MB). Every build logs
-  the line (`added N records = P% of the old pack` when on). Code: `wiktKeep()`, `jmdictPairs()` in
+  the line (`added N records = P% of the old pack` when on). The CI build of 51d2735 logged "added 57719 = 382%", which
+  counted entries later dropped for having no gloss; since the third ruling the count is taken after that check
+  (real change then: 21,670 -> 72,809 records, 6.6 -> 19.5 MB). Code: `wiktKeep()`, `jmdictPairs()` in
   `build/lib/packs.mjs`.
 - 34.9 Deinflection goes up to 3 chained rules (食べられていなかった, 食べすぎちゃった, 読ませたくなかった). Masu-stem
   -sou na / -sou ni (also after i-adjectives: 嬉しそうに), -nikui, -yasui, -ppanashi.
@@ -1184,10 +1186,10 @@ page tests `test/audit-page.test.mjs`, acceptance rows "34.x" in `tools/query.mj
   entries pushed without a user gesture there, so it could be false while the page had steps and the app closed).
   Replaces the canGoBack rule of 33.2.
 - Speed (node, PC, real packs, 2026-11-26): 96-character text 48 ms, 500 characters 135 to 140 ms (30.4: 94 to 139 ms).
-- 34.20 (second ruling, 2026-11-26) A kana-only piece that matches a words record with a written form, whose first sense
-  is not tagged uk, through a reading that is not the record's first reading, weighs 8 more in the splitter
-  (`KANA_READING_EXTRA`). Does NOT fix 部屋にいた: 新 (さら / あら / にい) has uk on its first sense. Checked: without
-  the uk condition the split is 部屋 / に / いた and every acceptance row passes; that change needs the owner's ruling.
+- 34.20 (second and third rulings, 2026-11-26) A kana-only piece that matches a words record with a written form
+  through a reading that is not the record's first reading weighs 8 more in the splitter (`KANA_READING_EXTRA`),
+  whether or not the record is tagged uk (the first draft excluded uk words and missed 新 = さら / あら / にい, which is
+  uk). 部屋にいた -> 部屋 / に / いた (居る).
 - 34.21 (second ruling) Counters JMdict does not tag, used only right after a number (ASCII or full-width digits, or the
   kanji numerals 一 to 九, 十, 百, 千): 分 (ふん / ぷん), 秒, 時, 時間, 日, 週, 週間, ヶ月 / か月 / カ月, 月, 年, 年間,
   人, 回, 個, 本, 枚, 円, 歳 / 才, 階, 匹, 冊, 台, 度, 番, 件, 杯, 点, 着 (`COUNTER_READINGS` in `segment.js`, each with its

@@ -289,7 +289,7 @@ const STUDY = [
   ['toranu tanuki', firstIs('捕らぬ狸の皮算用'), '32.9 捕らぬ狸の皮算用 1st'],
   ['とらぬたぬき', (r) => posOf(r, '捕らぬ狸の皮算用') === 0, '32.9 kana: 捕らぬ狸の皮算用 1st in Japanese words'],
   // SPEC 34: outside audit R-001 (2026-11-26)
-  ['部屋にいた', (r) => splitIs(['部屋', 'に', 'いた'])(r) && textHead(r, 'いた') === '居る', '34.1 部屋 / に / いた (居る)'],
+  ['部屋にいた', (r) => splitIs(['部屋', 'に', 'いた'])(r) && textHead(r, 'いた') === '居る', '34.1 / 34.20 部屋 / に / いた (居る)'],
   ['静かにしろ', (r) => textHead(r, 'しろ') === '為る' && textItem(r, 'しろ').via === 'imperative', '34.1 しろ = する (imperative), not 白'],
   ['助けてくれ', (r) => splitIs(['助けて', 'くれ'])(r) && textHead(r, 'くれ') === '呉れる', '34.1 くれ = くれる (imperative), not 暮れ'],
   ['車で来た', (r) => splitIs(['車', 'で', '来た'])(r) && textHead(r, '来た') === '来る', '34.1 / 34.3 車 / で / 来た (来る), not 来 = らい'],
@@ -366,9 +366,7 @@ function accept() {
 
 // Rows that cannot pass under the rules as written (SPEC 18: reported, the rule is NOT changed). They are run and
 // printed as KNOWN with the diagnosis, and not counted. Remove a row from here when a ruling changes the outcome.
-const KNOWN = { // SPEC 34.1 (2026-11-26): the audit's rule fixes the record of いた, not the split
-  '部屋にいた': 'にい matches 新 (さら / あら / にい, P 0). The SPEC 34.20 extra (+8) applies only to words NOT tagged uk, and 新 has uk on its first sense, so にい / た (20) stays lighter than に / いた (24). Without the uk condition: 部屋 / に / いた and every other row passes (checked 2026-11-26)',
-};
+const KNOWN = {}; // empty again since SPEC 34.20 (third ruling 2026-11-26): 部屋にいた passes
 
 function bench() {
   for (const q of ['jisho', 'jihso', 'dictonary', 'naiso', 'kaisa', 'ないしよ']) {
