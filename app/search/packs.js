@@ -4,6 +4,8 @@
 
 import { fold, hash32 } from './fold.js';
 import { letterMask } from './cost.js';
+import { kanaToRomaji } from './romaji.js';
+import { ADDITIONS, ADDITION_RANK } from './additions.js';
 
 export const PACKS = ['words', 'names', 'wikt']; // searchable packs
 export const SENT = 'sent'; // Tatoeba sentence pack (SPEC 13): no .meta, key space "h" with forms
@@ -172,8 +174,11 @@ class Pack {
     this.n = 0;
     this.cache = new Map();
     this.common = null; // lazily filled: 0 unknown, 1 not common, 2 common
+    this.base = Infinity; // first id of the added records (SPEC 32.4); Infinity = none
+    this.extra = [];
   }
   record(id) {
+    if (id >= this.base) return this.extra[id - this.base]; // SPEC 32.4: records added by the app code
     let rec = this.cache.get(id);
     if (rec) return rec;
     rec = JSON.parse(td.decode(this.dat.subarray(this.off[id], this.off[id + 1])));
@@ -183,10 +188,94 @@ class Pack {
   }
 }
 
+const STOP = new Set('a an the of to in on at for and or by with as is be it that from'.split(' '));
+/** English keys of one gloss (SPEC 3, space e; same rule as build/lib/packwriter.mjs englishKeys). */
+function englishKeys(text) {
+  return String(text).toLowerCase().split(/[^\p{L}]+/u).filter((w) => w.length >= 2 && !STOP.has(w));
+}
+
+/**
+ * SPEC 32.4: append records to a loaded pack (words) and put their keys into its key spaces, before the lazy
+ * indexes are built. A record whose written form + reading pair already exists in the pack is skipped.
+ * New ids are p.n, p.n + 1, ...; their rank (ff and fn) is `rank`.
+ */
+export function mergeRecords(p, records, rank) {
+  const ks = p.spaces.k;
+  const exists = (rec) => [...(rec.k || []), ...(rec.r || [])].some((f) => {
+    const i = ks ? ks.find(f.normalize('NFKC')) : -1;
+    if (i < 0) return false;
+    return Array.from(ks.idsOf(i)).some((id) => (p.record(id).r || []).some((x) => (rec.r || []).includes(x)));
+  });
+  const add = records.filter((rec) => !exists(rec));
+  if (!add.length) return 0;
+  const base = p.n;
+  const keys = { r: new Map(), k: new Map(), e: new Map() };
+  const put = (m, key, val) => { if (!key) return; let a = m.get(key); if (!a) m.set(key, (a = [])); if (!a.includes(val)) a.push(val); };
+  add.forEach((rec, x) => {
+    const id = base + x;
+    for (const f of rec.r || []) put(keys.r, kanaToRomaji(f), id);
+    for (const f of [...(rec.k || []), ...(rec.r || [])]) put(keys.k, f.normalize('NFKC'), id);
+    (rec.s || []).forEach((sense, si) => { for (const g of sense.g || []) for (const w of englishKeys(g)) put(keys.e, w, id * 16 + Math.min(si, 15)); });
+  });
+  for (const s of Object.keys(p.spaces)) if (keys[s] && keys[s].size) p.spaces[s] = mergeKeys(p.spaces[s], keys[s]);
+  const meta = new Uint32Array((base + add.length) * 2);
+  meta.set(p.meta);
+  for (let x = 0; x < add.length; x++) { meta[(base + x) * 2] = rank; meta[(base + x) * 2 + 1] = rank; }
+  p.meta = meta;
+  p.base = base;
+  p.extra = add;
+  p.n = base + add.length;
+  return add.length;
+}
+
+/** A new KeySpace = ks plus `adds` (Map key -> ids, ids larger than every id of ks). Keys stay sorted. */
+function mergeKeys(ks, adds) {
+  const list = Array.from(adds.keys()).sort(); // code-unit order, like the build
+  const at = list.map((k) => ks.lowerBound(k));
+  const isOld = list.map((k, x) => at[x] < ks.count && ks.cmp(at[x], k) === 0);
+  const newKeys = isOld.filter((b) => !b).length;
+  const extraIds = list.reduce((n, k) => n + adds.get(k).length, 0);
+  const K = ks.count + newKeys;
+  const ptr = new Uint32Array(K + 1);
+  const ids = new Uint32Array(ks.ids.length + extraIds);
+  const pieces = [];
+  let oi = 0, ni = 0, ip = 0;
+  const copyOld = (upto) => { // old keys [oi, upto)
+    if (upto <= oi) return;
+    pieces.push(ks.str.slice(ks.off[oi], ks.off[upto] - 1));
+    for (; oi < upto; oi++) {
+      const a = ks.ptr[oi], b = ks.ptr[oi + 1];
+      ptr[ni++] = ip;
+      ids.set(ks.ids.subarray(a, b), ip);
+      ip += b - a;
+    }
+  };
+  list.forEach((k, x) => {
+    copyOld(at[x]);
+    const add = adds.get(k);
+    ptr[ni++] = ip;
+    if (isOld[x]) { // the key exists: its old ids, then the new ones
+      const a = ks.ptr[oi], b = ks.ptr[oi + 1];
+      ids.set(ks.ids.subarray(a, b), ip);
+      ip += b - a;
+      pieces.push(k);
+      oi++;
+    } else pieces.push(k);
+    for (const id of add) ids[ip++] = id;
+  });
+  copyOld(ks.count);
+  ptr[ni] = ip;
+  return new KeySpace(pieces.join('\n'), ptr, ids);
+}
+
 export class PackStore {
-  /** @param readFile (name, onBytes?) => Promise<ArrayBuffer|Uint8Array> */
-  constructor(readFile) {
+  /**
+   * @param readFile (name, onBytes?) => Promise<ArrayBuffer|Uint8Array>
+   * @param opts.additions false = do not merge the Nearest Jisho additions into the words pack (SPEC 32.4)
+   */
+  constructor(readFile, opts = {}) {
     this.readFile = readFile;
+    this.additions = opts.additions !== false;
     this.packs = {};
     this.kanjiData = null;
     this.pitchData = null;
@@ -239,6 +328,7 @@ export class PackStore {
     p.off = u32(await off);
     p.meta = u32(await meta);
     p.n = p.off.length - 1;
+    if (name === 'words' && this.additions) mergeRecords(p, ADDITIONS, ADDITION_RANK);
     p.common = new Uint8Array(p.n);
     this.packs[name] = p;
     if (onProgress) onProgress(1);
@@ -256,7 +346,8 @@ export class PackStore {
 
   has(pack) { return pack === SENT ? !!this.sent : !!this.packs[pack]; }
   size(pack) { return pack === SENT ? (this.sent ? this.sent.n : 0) : this.packs[pack]?.n || 0; }
-  getRecord(pack, id) { return this.packs[pack].record(id); }
+  /** A record; null for a kanji row of "Words in this text" (pack "kanji", SPEC 32.2: its data travels in the hit). */
+  getRecord(pack, id) { return pack === 'kanji' ? null : this.packs[pack].record(id); }
   meta(pack, id) { const m = this.packs[pack].meta; return { ff: m[id * 2], fn: m[id * 2 + 1] }; }
   /** rank per SPEC 4.6: ff for "fiction", fn for "news". */
   rank(pack, id, ranking) { return this.packs[pack].meta[id * 2 + (ranking === 'news' ? 1 : 0)]; }

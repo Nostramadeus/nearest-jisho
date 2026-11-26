@@ -60,7 +60,7 @@ for (const p of LOAD_ORDER) { // same order as the worker (SPEC 13.4)
 }
 const loadMs = Math.round(performance.now() - t0);
 
-const head = (h) => { const r = store.getRecord(h.pack, h.id); return (r.k && r.k[0]) || (r.r && r.r[0]) || '?'; };
+const head = (h) => { if (h.pack === 'kanji') return h.kanji; const r = store.getRecord(h.pack, h.id); return (r.k && r.k[0]) || (r.r && r.r[0]) || '?'; };
 function line(h) {
   const r = store.getRecord(h.pack, h.id);
   const word = (r.k && r.k[0]) || r.r[0];
@@ -96,8 +96,13 @@ function show(q) {
   for (const g of res.groups) {
     if (g.id === 'text') { // SPEC 17: the split line, then one row per segment: text -> headword (reading)
       console.log(`  [${g.title}] ${g.wordCount} words; ${(g.notes || []).join(' ')}`);
-      console.log(`   split: ${g.segments.map((x) => (x.kind === 'word' ? `[${x.text}]` : x.kind === 'unknown' ? `?${x.text}?` : x.text)).join('')}`);
+      const line = (list) => list.map((x) => (x.kind === 'word' ? `[${x.text}]` : x.kind === 'unknown' ? `?${x.text}?` : x.text)).join('');
+      console.log(`   split: ${line(g.segments)}`);
       for (const a of g.alts || []) console.log(`   or:    ${a.chips.map((x) => `[${x.text}]`).join('')}  instead of ${a.instead.join(' / ')}`);
+      for (const rd of g.readings || []) console.log(`   reading given in the text: ${line(rd.chips)}`); // SPEC 32.3
+      for (const h of g.results) { // SPEC 32.2: kanji rows
+        if (h.pack === 'kanji') console.log(`   ${h.kanji} -> kanji: ${h.kd.m.slice(0, 4).join(', ')}; on ${h.kd.on.join('、')}; kun ${h.kd.kun.join('、')}`);
+      }
       for (const x of g.segments) {
         if (x.kind !== 'word') continue;
         const h = g.results[x.item];
@@ -105,6 +110,11 @@ function show(q) {
         const hw = (r.k && r.k[0]) || (r.r && r.r[0]);
         const extra = [h.pack !== 'words' ? h.pack : '', h.fn ? 'function word' : '', h.via ? `via ${h.via}` : '', h.others ? `${h.others} other entries` : ''].filter(Boolean).join(', ');
         console.log(`   ${x.text} -> ${hw} (${(r.r || [])[0] || ''})${extra ? `  [${extra}]` : ''}`);
+      }
+      for (const h of g.results) { // SPEC 32.3: words of the reading in brackets
+        if (!h.fromReading) continue;
+        const r = store.getRecord(h.pack, h.id);
+        console.log(`   (reading) ${h.segment} -> ${(r.k && r.k[0]) || (r.r && r.r[0])} (${(r.r || [])[0] || ''})${h.via ? `  [via ${h.via}]` : ''}`);
       }
       continue;
     }
@@ -248,7 +258,42 @@ const STUDY = [
   ['ばあさんどれい', hasAlt('ばあ / さんど / れい <- ばあさん / どれい'), '29 other split ばあ / さんど / れい (the report\'s example)'],
   ['あなたのことがすきだからです', (r) => altsOf(r).length === 0 && !!groupOf(r, 'text'), '29 no other split (rare-word and names-only splits are not listed)'],
   ['すもももももももものうち', (r) => altsOf(r).length === 5, '29 at most 5 other splits'],
+  // SPEC 32: the owner's bug batch of 2026-11-26
+  ['悩ましボディを', (r) => splitIs(['悩まし', 'ボディ', 'を'])(r) && textHead(r, '悩まし') === '悩ましい', '32.1 悩まし / ボディ / を, 悩まし -> 悩ましい'],
+  ['nayamashi', (r) => firstIs('悩ましい')(r) && rowsOf(r)[0].via === 'adjective stem', '32.1 romaji: 悩ましい 1st as the adjective stem'],
+  ['なやまし', (r) => firstIs('悩ましい')(r) && rowsOf(r)[0].via === 'adjective stem', '32.1 kana: 悩ましい 1st as the adjective stem'],
+  ['氷霜撃(アイシクルブレイク)', (r) => {
+    const g = groupOf(r, 'text');
+    return splitIs(['氷', '霜'])(r) && g.results.some((h) => h.pack === 'kanji' && h.kanji === '撃' && h.kd.on.includes('ゲキ'));
+  }, '32.2 撃 matches no word: its kanji row (on ゲキ)'],
+  ['氷霜撃(アイシクルブレイク)', (r) => {
+    const g = groupOf(r, 'text');
+    const rd = (g.readings || [])[0];
+    const fr = g.results.filter((h) => h.fromReading);
+    return !!rd && rd.reading === 'アイシクルブレイク' && rd.chips.map((x) => x.text).join('/') === 'アイシクル/ブレイク' &&
+      fr.map((h) => h.segment).join('/') === 'アイシクル/ブレイク' && fr[0].readingHead === 'From the reading in brackets';
+  }, '32.3 reading in brackets: line + its words アイシクル, ブレイク after the main words'],
+  ['食事を終え、腹がくちくなったところで', (r) => textHead(r, 'くちくなった') === 'くちい', '32.4 くちくなった -> くちい (Nearest Jisho additions)'],
+  ['くちく', (r) => { const i = posOf(r, 'くちい'); return i >= 0 && rowsOf(r)[i].via === 'adverb (-ku)'; }, '32.4 くちく lists くちい as its -ku form (after the exact 駆逐, SPEC 4.8)'],
+  ['血判状', (r) => firstIs('血判状')(r) && rowsOf(r)[0].tier === 0, '32.4 血判状 exact (Nearest Jisho additions)'],
+  ['ゼリー状の物', (r) => { const g = groupOf(r, 'text'); const h = g && g.results.find((x) => x.segment === '状'); return !!h && store.getRecord('words', h.id).r[0] === 'じょう'; },
+    '32.5 状 after a noun: じょう (n-suf), not さま'],
+  ['uronge', (r) => firstIs('胡乱')(r) && /-ge: seeming, looking$/.test(rowsOf(r)[0].note || ''), '32.6 胡乱 1st, note -ge: seeming, looking'],
+  ['うろんげ', (r) => firstIs('胡乱')(r) && rowsOf(r)[0].via === '-ge: seeming, looking', '32.6 kana: 胡乱 1st'],
+  ['胡乱げ', (r) => firstIs('胡乱')(r) && !groupOf(r, 'text'), '32.6 胡乱げ one piece: 胡乱 1st, no split'],
+  ['悩ましげ', (r) => firstIs('悩ましげ')(r) && !rowsOf(r)[0].via, '32.6 the own entry 悩ましげ stays 1st'],
+  ['尻も掻いてほしいのか', (r) => splitIs(['尻', 'も', '掻いて', 'ほしい', 'のか'])(r) && textHead(r, '掻いて') === '掻く', '32.7 尻 / も / 掻いて (掻く), not 藻掻く'],
+  ['shobotsukasenagara', (r) => firstIs('しょぼつく')(r) && rowsOf(r)[0].via === 'causative + while (-nagara)', '32.8 しょぼつく via causative + -nagara'],
+  ['しょぼつかせながら', (r) => firstIs('しょぼつく')(r) && rowsOf(r)[0].via === 'causative + while (-nagara)', '32.8 kana: しょぼつく'],
+  ['toranu tanuki', firstIs('捕らぬ狸の皮算用'), '32.9 捕らぬ狸の皮算用 1st'],
+  ['とらぬたぬき', (r) => posOf(r, '捕らぬ狸の皮算用') === 0, '32.9 kana: 捕らぬ狸の皮算用 1st in Japanese words'],
 ];
+/** Headword of the "Words in this text" item of one segment. */
+function textHead(r, seg) {
+  const g = groupOf(r, 'text');
+  const h = g && g.results.find((x) => x.segment === seg);
+  return h ? head(h) : null;
+}
 for (const [q, check, want] of STUDY) ACCEPT.push([q, 'fiction', check, want]);
 
 function accept() {

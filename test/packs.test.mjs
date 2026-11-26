@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadFixtureStore, WORDS } from './helpers/fixture.mjs';
+import { ADDITIONS } from '../app/search/additions.js';
 import { search } from '../app/search/engine.js';
 
 for (const layout of ['json', 'binary']) {
   test(`PackStore reads the ${layout} layout`, async () => {
     const { store, cleanup } = await loadFixtureStore(layout);
     try {
-      assert.equal(store.size('words'), WORDS.length);
+      assert.equal(store.size('words'), WORDS.length + ADDITIONS.length); // SPEC 32.4: the additions are merged in
       assert.deepEqual(store.getRecord('words', 0).k, ['辞書']);
       assert.deepEqual(store.meta('words', 0), { ff: 500, fn: 1000 });
       assert.equal(store.rank('words', 0, 'news'), 1000);

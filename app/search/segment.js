@@ -1,7 +1,7 @@
 // Words in a pasted text (SPEC 17.2 / 17.3). Pure module: runs in the worker and in node.
 // Lowest-total-weight split (SPEC 19.1): common words win over rare ones; it can still be wrong (stated in the note).
 import { toHiragana, isKana } from './romaji.js';
-import { deinflect, posBits } from './deinflect.js';
+import { deinflect, posBits, isStemLabel } from './deinflect.js';
 import { pRank } from './cost.js';
 import { mixedSpans } from './mixed.js';
 
@@ -72,7 +72,8 @@ function oneKanaFilter(store, s, cands) {
 
 /** 17.3: true written-form match before a deinflected one, then rank, then record id. */
 function choose(store, cands, ranking) {
-  const key = (c) => [c.via ? 1 : 0, store.rank(c.pack, c.id, ranking), c.pack === 'words' ? 0 : c.pack === 'wikt' ? 1 : 2, c.id];
+  const key = (c) => [c.via ? (String(c.via).split(' + ').some(isStemLabel) ? 2 : 1) : 0, // SPEC 32.6: an own entry (寒がる) before base + stem suffix (寒い)
+    store.rank(c.pack, c.id, ranking), c.pack === 'words' ? 0 : c.pack === 'wikt' ? 1 : 2, c.id];
   return cands.slice().sort((a, b) => {
     const x = key(a), y = key(b);
     for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] - y[i];
@@ -84,9 +85,13 @@ export const UNKNOWN_WEIGHT = 40;
 // SPEC 19.1: + 4 deinflection only, + 6 wikt only, + 8 names only; SPEC 30: + 8 part typed in kana
 const EXTRA = { 1: 0, 2: 4, 3: 6, 4: 8, 5: 8 };
 
-/** Candidate records of one edge: the first matching rule 1, 2, 3, 5 (one-kana rule applied), else 4 (names, L >= 2). */
-function edgeCands(store, s, L, mixed, at) {
-  const c = oneKanaFilter(store, s, rulesOneToThree(store, s, mixed, at));
+/**
+ * Candidate records of one edge: the first matching rule 1, 2, 3, 5 (one-kana rule applied), else 4 (names, L >= 2).
+ * refuse5(cands): the rule-5 candidates to drop (SPEC 32.7); when none is left, rule 4 is tried.
+ */
+function edgeCands(store, s, L, mixed, at, refuse5) {
+  let c = oneKanaFilter(store, s, rulesOneToThree(store, s, mixed, at));
+  if (c.length && c[0].rule === 5 && refuse5) c = refuse5(c);
   if (c.length) return c;
   if (L >= 2 && store.has('names')) return exact(store, 'names', s).map((id) => ({ pack: 'names', id, rule: 4 }));
   return [];
@@ -104,6 +109,12 @@ export const ALT_PARTICLES = new Set(Array.from('はがをにでとものへや�
 export const ALT_ONE_KANA_EXTRA = 8;
 /** SPEC 29: every piece more than the chosen split has raises the margin by this much (a piece costs at least 10). */
 export const ALT_MARGIN_PER_PIECE = 5;
+/** SPEC 32.7: a rule-5 word whose kana part is ONE leading kana of these, after a kanji word, is refused (尻も掻いて). */
+export const LEAD_PARTICLES = new Set(Array.from('もはがをにとでのへやか'));
+/** SPEC 32.5: parts of speech of a "noun piece", and the suffix tags preferred for a one-kanji piece after it. */
+export const NOUN_POS = new Set(['n', 'n-adv', 'n-t', 'n-pr', 'n-suf']);
+export const SUFFIX_POS = new Set(['suf', 'n-suf']);
+const hasKanji = (s) => Array.from(s).some((ch) => !isKana(ch.codePointAt(0)));
 
 /**
  * Split a text into segments (SPEC 19.1, replacing the greedy rule of 17.2): every substring of up to 12 word
@@ -134,6 +145,7 @@ export function segmentText(store, text, { ranking = 'fiction', wordLimit = Infi
     while (end < chars.length && isWordChar(chars[end])) end++;
     const edges = runEdges(store, chars, i, end, ranking);
     const path = bestPath(edges, end - i);
+    suffixAfterNoun(store, path);
     if (wordCount < wordLimit) {
       // only the part of the run whose words are shown
       let room = wordLimit - wordCount, upto = 0;
@@ -170,17 +182,61 @@ export function mixedWhole(store, text, { ranking = 'fiction', margin = ALT_MARG
   return whole.w <= best + margin ? whole.seg : null;
 }
 
+/** On readings of a kanji (KANJIDIC) in hiragana; empty without kanji data. */
+function onReadings(store, ch) {
+  const d = store.kanji ? store.kanji(ch) : null;
+  return new Set(((d && d.on) || []).map((r) => toHiragana(String(r).replace(/[.\-]/g, ''))));
+}
+
+/**
+ * SPEC 32.5: a one-kanji piece directly after a noun piece takes the record whose part of speech includes a suffix
+ * tag (suf, n-suf) and whose reading is an on reading of the kanji (血判 + 状 = じょう, not さま), best rank first.
+ * The path and its weights stay as they are; only the record shown for the piece changes.
+ */
+function suffixAfterNoun(store, path) {
+  for (let x = 1; x < path.length; x++) {
+    const seg = path[x].seg, prev = path[x - 1].seg;
+    if (seg.kind !== 'word' || prev.kind !== 'word' || path[x].L !== 1 || !seg.cands || !hasKanji(seg.text)) continue;
+    const pr = store.getRecord(prev.pack, prev.id);
+    if (!(pr.s || []).some((sense) => (sense.p || []).some((p) => NOUN_POS.has(p)))) continue;
+    const on = onReadings(store, seg.text);
+    if (!on.size) continue;
+    const pick = seg.cands.find((c) => {
+      if (c.rule !== 1 || c.pack !== 'words') return false;
+      const rec = store.getRecord(c.pack, c.id);
+      return (rec.s || []).some((sense) => (sense.p || []).some((p) => SUFFIX_POS.has(p))) && (rec.r || []).some((r) => on.has(toHiragana(r)));
+    });
+    if (pick && pick.id !== seg.id) { seg.id = pick.id; seg.suffix = true; }
+  }
+}
+
 /** edges[k] = every edge { L, w, seg } that starts at chars[from + k] (the last one is the "unknown" edge). */
 function runEdges(store, chars, from, to, ranking) {
   const n = to - from;
   const edges = Array.from({ length: n }, () => []);
   // SPEC 30: partly-kana words of the run, Map(start * 64 + length -> hits); positions count from the run's start
   const mixed = mixedSpans(store, 'words', from === 0 && to === chars.length ? chars : chars.slice(from, to));
+  /**
+   * SPEC 32.7 (mirror of 30.3): a rule-5 word whose kana part is one leading particle kana (も掻いて = 藻掻いて) is
+   * refused when a kanji word ends right before it (尻) and the rest (掻いて) is a word by rule 1 to 3.
+   */
+  const refuseAt = (k, s, L) => (cands) => {
+    const ch = Array.from(s);
+    if (L < 2 || k === 0 || !LEAD_PARTICLES.has(toHiragana(ch[0])) || isKana(ch[1].codePointAt(0))) return cands;
+    let kanjiBefore = false;
+    for (let j = 0; j < k && !kanjiBefore; j++) {
+      kanjiBefore = edges[j].some((e) => j + e.L === k && e.seg.kind === 'word' && hasKanji(e.seg.text));
+    }
+    if (!kanjiBefore) return cands;
+    const rest = ch.slice(1).join('');
+    if (!oneKanaFilter(store, rest, rulesOneToThree(store, rest, null, 0)).length) return cands;
+    return cands.filter((c) => isKana(Array.from(c.base || '')[0]?.codePointAt(0) || 0x3042)); // drop: the kana stands for a kanji
+  };
   for (let k = 0; k < n; k++) {
     const maxL = Math.min(SEGMENT_MAX_LEN, n - k);
     for (let L = 1; L <= maxL; L++) {
       const s = chars.slice(from + k, from + k + L).join('');
-      const cands = edgeCands(store, s, L, mixed.size ? mixed : null, k * 64 + L);
+      const cands = edgeCands(store, s, L, mixed.size ? mixed : null, k * 64 + L, refuseAt(k, s, L));
       if (!cands.length) continue;
       const sorted = choose(store, cands, ranking);
       const best = sorted[0];
@@ -189,6 +245,7 @@ function runEdges(store, chars, from, to, ranking) {
       const seg = { kind: 'word', text: s, start: from + k, end: from + k + L, pack: best.pack, id: best.id, rule: best.rule, others: sorted.length - 1, weight: w };
       if (best.via) { seg.via = best.via; seg.base = best.base; }
       if (best.rule === 5) { seg.base = best.base; seg.cands = sorted; } // SPEC 30: every record of this reading
+      else if (L === 1 && sorted.length > 1 && hasKanji(s)) seg.cands = sorted; // SPEC 32.5: suffixAfterNoun
       edges[k].push({ L, w, seg });
     }
     edges[k].push({ L: 1, w: UNKNOWN_WEIGHT, seg: { kind: 'unknown', text: chars[from + k] } });

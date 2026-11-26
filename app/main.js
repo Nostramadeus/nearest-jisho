@@ -41,6 +41,12 @@ const S = {
   favRemoved: new Map(), // rows clicked off during this visit of the Favorites view (shown greyed): key -> item
   entry: null,     // { w, r, p } of the open entry page
   entryReq: 0,
+  // SPEC 32.10 scroll rule: shownQuery = the query of the result list on screen (a new one starts at the top);
+  // restore = { q, y } a list reached by Back whose scroll position comes back when its results arrive;
+  // moreAt = { id, n } "Show more" was pressed: the first new card of that group goes to the top of the view.
+  shownQuery: null,
+  restore: null,
+  moreAt: null,
 };
 try { const t = localStorage.getItem('nj-theme'); if (t === 'light' || t === 'dark') S.theme = t; } catch { /* default */ }
 if (!Array.isArray(S.recent)) S.recent = [];
@@ -125,6 +131,8 @@ function emptyAddress() { return location.pathname + location.search; }
 function writeQuery(prev, forcePush) {
   const url = S.query ? `#q=${encodeURIComponent(S.query)}` : emptyAddress();
   if (settled || forcePush) {
+    // SPEC 32.10: Back returns to the exact scroll position of the list it leaves
+    if (forcePush !== 'view') history.replaceState({ scroll: window.scrollY }, '', location.href);
     history.pushState(null, '', url);
     below = S.view === 'search' && forcePush !== 'view' ? prev : null;
     twin = false;
@@ -188,7 +196,13 @@ function route(ev) {
   // Back from an entry that repeated the query of the step below it: nothing would change on screen, go one more step
   if (wasTwin && !wasEntry && q === S.query) { history.back(); return; }
   if (wasEntry) showSearchView();
-  if (q !== S.query) { applyQuery(q); return; }
+  if (q !== S.query) {
+    // SPEC 32.10: a list reached by Back comes back at its old scroll position once its results are in
+    const y = ev && ev.state && typeof ev.state.scroll === 'number' ? ev.state.scroll : null;
+    S.restore = y !== null && q.trim() ? { q, y } : null;
+    applyQuery(q);
+    return;
+  }
   if (wasEntry) {
     if (!q.trim()) renderEmpty();
     const y = ev && ev.state && typeof ev.state.scroll === 'number' ? ev.state.scroll : 0;
@@ -700,6 +714,35 @@ function onResult(m) {
     resultsEl.innerHTML = groupsHtml(r.groups, renderOpts());
   }
   renderWiki();
+  placeList(m.phase);
+}
+
+/**
+ * SPEC 32.10, where the list stands after a result arrives: a list reached by Back at its old position; a new query
+ * at the top; the same query (a pack arrived, the fast result followed by the full one) where it was; after
+ * "Show more" the first new card of that group at the top of the view.
+ */
+function placeList(phase) {
+  if (S.restore && S.restore.q === S.query) {
+    window.scrollTo(0, S.restore.y);
+    if (phase === 'full') S.restore = null;
+  } else if (S.query !== S.shownQuery) {
+    S.restore = null;
+    window.scrollTo(0, 0);
+  } else if (S.moreAt && phase === 'full') {
+    const sec = resultsEl.querySelector(`section[data-group="${S.moreAt.id}"]`);
+    const card = sec && sec.querySelector(`.card[data-r="${S.moreAt.n}"]`);
+    if (card) scrollToTop(card);
+  }
+  if (phase === 'full') S.moreAt = null;
+  S.shownQuery = S.query;
+}
+
+/** SPEC 32.10: scroll so that the top (header) of `el` stands right below the sticky search row. */
+function scrollToTop(el) {
+  if (!el || !el.getBoundingClientRect) return;
+  const y = Math.max(0, Math.round(window.scrollY + el.getBoundingClientRect().top - stickyBottom() - 8));
+  window.scrollTo(0, y);
 }
 
 /** Bottom edge (viewport px) of everything stuck to the top right now: the search row and any sticky / fixed bar. */
@@ -733,6 +776,7 @@ function renderWiki() {
 
 function renderEmpty() {
   S.seq++; // drop answers still in flight
+  S.shownQuery = ''; S.restore = null; S.moreAt = null;
   resultsEl.innerHTML = '';
   dymEl.hidden = true;
   wikiEl.hidden = true;
@@ -750,6 +794,7 @@ resultsEl.addEventListener('click', (e) => {
     const id = more.dataset.more;
     const cur = S.groupLimits[id] || (id === 'names' ? NAMES_FIRST : DEFAULT_LIMIT);
     S.groupLimits[id] = cur + 50;
+    S.moreAt = { id, n: cur }; // SPEC 32.10: the first new card goes to the top of the view
     runSearch('full');
     return;
   }
@@ -768,6 +813,15 @@ resultsEl.addEventListener('click', (e) => {
     }
     return;
   }
+  const qlink = e.target.closest('a[href^="#q="]');
+  if (qlink) { // SPEC 32.10: same as a suggestion chip, so the list's scroll position is saved for Back
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    let q = qlink.getAttribute('href').slice(3);
+    try { q = decodeURIComponent(q); } catch { /* keep raw */ }
+    setQuery(q, { push: true });
+    return;
+  }
   const fnrow = e.target.closest('a.fnrow');
   if (fnrow) {
     if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
@@ -784,6 +838,7 @@ resultsEl.addEventListener('click', (e) => {
     const box = tog.nextElementSibling;
     box.hidden = !box.hidden;
     tog.setAttribute('aria-expanded', String(!box.hidden));
+    if (!box.hidden) scrollToTop(card); // SPEC 32.10: the opened card's header at the top of the view
     return;
   }
   if (e.target.closest('button')) return;

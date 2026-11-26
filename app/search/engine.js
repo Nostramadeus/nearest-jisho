@@ -1,10 +1,10 @@
 // Search engine (SPEC 4). Pure module: no DOM, no fetch. Works on a PackStore (packs.js).
 
-import { canon, hasKana, romajiToKana, kanaToRomaji, toHiragana, latinRewrite } from './romaji.js';
+import { canon, hasKana, romajiToKana, kanaToRomaji, toHiragana, latinRewrite, isKana } from './romaji.js';
 import { fold } from './fold.js';
 import { prepareQuery, distance, budget, reasonFor, letterMask, popcount, INF, P_LIMITS, pRank } from './cost.js';
 import { kanaVariants, latinVoicedVariants, KANA_LABEL } from './kanavariants.js';
-import { deinflect, posBits } from './deinflect.js';
+import { deinflect, posBits, viaNote, isStemLabel } from './deinflect.js';
 import { segmentText, mixedWhole, isFunctionWord, TEXT_MAX_CHARS, TEXT_MIN_CHARS } from './segment.js';
 import { mixedNote } from './mixed.js';
 
@@ -33,6 +33,24 @@ export function stripBrackets(q) {
   s = s.trim();
   return s || String(q);
 }
+
+/**
+ * SPEC 32.3: brackets right after a kanji that hold only kana are a reading (game / novel furigana):
+ * 氷霜撃(アイシクルブレイク) -> [{ base: '氷霜撃', reading: 'アイシクルブレイク' }]. Round brackets (half or full width) and
+ * Aozora ruby 《...》. In text order, each reading once.
+ */
+export function bracketReadings(q) {
+  const out = [];
+  const re = /([㐀-䶿一-鿿豈-﫿々\u{20000}-\u{3134f}]+)(?:\(([^()]*)\)|（([^（）]*)）|《([^《》]*)》)/gu;
+  for (const m of String(q).matchAll(re)) {
+    const reading = (m[2] ?? m[3] ?? m[4] ?? '').trim();
+    if (!reading || !Array.from(reading).every((ch) => isKana(ch.codePointAt(0)))) continue;
+    if (!out.some((x) => x.reading === reading)) out.push({ base: m[1], reading });
+  }
+  return out;
+}
+export const READING_LINE = 'Reading given in the text:';
+export const READING_HEAD = 'From the reading in brackets';
 
 /** 'kanji' | 'kana' | 'latin' (SPEC 4.3). Anything else (digits, symbols) is searched as written, like kanji. */
 export function queryKind(q) {
@@ -423,6 +441,8 @@ function makeReadingComparator(store, ctx) {
       if (pt) return pt;
       return tail(a, b);
     }
+    // SPEC 32.6: among deinflected hits, an own entry (寒がる) before base + stem suffix (寒い), sub 2 before 2.5
+    if (ba === 4 && a.tier === 0 && b.tier === 0 && a.via && b.via && (a.sub || 0) !== (b.sub || 0)) return (a.sub || 0) - (b.sub || 0);
     const pt = priTie(a, b);
     if (pt) return pt;
     if (ba === 5) {
@@ -501,7 +521,7 @@ function deinflectHits(store, ctx, word, hits, shown = word) {
       }
       if (!ok) continue;
       put(hits, {
-        pack: 'words', id, tier: 0, sub: 2, cost: 0, via: cand.via.join(' + '), base: cand.form, typed: shown,
+        pack: 'words', id, tier: 0, sub: cand.via.some(isStemLabel) ? 2.5 : 2, cost: 0, via: cand.via.join(' + '), base: cand.form, typed: shown,
         space: 'k', key: cand.form, keyLen: cand.form.length,
       });
     }
@@ -775,6 +795,7 @@ export function createEngine(store) {
 export function search(store, query, opts = {}) {
   const asTyped = String(query || '').normalize('NFKC').trim();
   const typed = opts.keepBrackets ? asTyped : stripBrackets(asTyped); // SPEC 31
+  const readings = opts.keepBrackets || typed === asTyped ? [] : bracketReadings(asTyped); // SPEC 32.3
   const out = { groups: [], didYouMean: null, kind: null, canon: '' };
   if (!typed) return out;
   const recentList = (opts.recent || []).map((s) => String(s).normalize('NFKC'));
@@ -910,7 +931,7 @@ export function search(store, query, opts = {}) {
       else if (h.via && h.via !== 'contains') {
         const rec = store.getRecord(h.pack, h.id);
         const head = (rec.k || []).includes(h.base) ? h.base : ((rec.k || [])[0] || h.base);
-        h.note = `${h.typed} is the ${h.via} form of ${head}`;
+        h.note = viaNote(h.typed, head, h.via);
       }
       // SPEC 18: every non-exact row shows its reason label
       if (!h.note && (h.tier === 1 || (h.tier === 3 && h.via !== 'contains') || h.label)) {
@@ -960,7 +981,7 @@ export function search(store, query, opts = {}) {
   if (ctx.phase === 'full' && kind !== 'latin' && !hasTier0(hits.words) && !hasTier0(hits.wikt)) {
     const n = Array.from(typed).length;
     if (n >= TEXT_MIN_CHARS) {
-      const tg = textGroup(store, ctx, typed);
+      const tg = textGroup(store, ctx, typed, readings);
       if (tg) { out.groups.unshift(tg); out.suggestions = []; } // SPEC 21.3: text input gets no chips
     }
   }
@@ -1123,10 +1144,26 @@ export const TEXT_MORE_NOTE = 'Showing the first 60 words.';
  * they use is a result with alt: true, placed by where it starts in the text (29.3: after the chosen word that starts
  * at the same character); it carries altHead (the split's pieces) unless the item above it is of the same split.
  */
-function textGroup(store, ctx, typed) {
+function textGroup(store, ctx, typed, readings = []) {
   const { segments, truncated, alts } = segmentText(store, typed, { ranking: ctx.ranking, wordLimit: TEXT_SEGMENTS_MAX });
   const words = segments.filter((x) => x.kind === 'word');
   if (!words.length) return null;
+  // SPEC 32.2: every kanji of a piece that matches no word gets its KANJIDIC entry as a row. Character positions of
+  // the unknown pieces (segments cover the text in order).
+  let cursor = 0, shownW = 0;
+  const unknownKanji = []; // { at, ch, inShown }
+  for (const seg of segments) {
+    const chars = Array.from(seg.text);
+    if (seg.kind === 'unknown') {
+      chars.forEach((ch, x) => { if (!isKana(ch.codePointAt(0)) && store.kanji(ch)) unknownKanji.push({ at: cursor + x, ch, inShown: shownW < TEXT_SEGMENTS_MAX }); });
+    } else if (seg.kind === 'word') shownW++;
+    cursor += chars.length;
+  }
+  const kanjiRow = (ch) => {
+    const d = store.kanji(ch) || {};
+    return { pack: 'kanji', id: -1, kanji: ch, kd: { m: d.m || [], on: d.on || [], kun: d.kun || [] }, tier: 0, cost: 0, via: null,
+      space: 'k', key: ch, hl: null, segment: ch, others: 0, fn: false };
+  };
   const results = [];
   const itemOf = new Map(); // pack:id -> result index
   const keyOf = (seg) => `${seg.pack}:${seg.id}`;
@@ -1139,7 +1176,7 @@ function textGroup(store, ctx, typed) {
     if (seg.via) {
       r.base = seg.base;
       const head = (rec.k || []).includes(seg.base) ? seg.base : ((rec.k || [])[0] || seg.base);
-      r.note = `${seg.text} is the ${seg.via} form of ${head}`;
+      r.note = viaNote(seg.text, head, seg.via);
     } else if (seg.rule === 5) { // SPEC 30
       r.base = seg.base;
       r.via = 'mixed';
@@ -1160,9 +1197,16 @@ function textGroup(store, ctx, typed) {
   alts.forEach((a, ai) => a.segments.forEach((seg, si) => {
     if (!chosenKeys.has(keyOf(seg))) entries.push({ pos: [seg.start, 1, ai, si], seg, ai });
   }));
+  for (const u of unknownKanji) if (u.inShown) entries.push({ pos: [u.at, 0, 0, 0], kanji: u.ch, ai: -1 });
   entries.sort((x, y) => { for (let k = 0; k < 4; k++) if (x.pos[k] !== y.pos[k]) return x.pos[k] - y.pos[k]; return 0; });
   let lastAi = -1; // split of the item above (-1 = a chosen word)
   for (const e of entries) {
+    if (e.kanji) { // SPEC 32.2
+      const key = `kanji:${e.kanji}`;
+      if (!itemOf.has(key)) { itemOf.set(key, results.length); results.push(kanjiRow(e.kanji)); }
+      lastAi = -1;
+      continue;
+    }
     const key = keyOf(e.seg);
     if (itemOf.has(key)) continue;
     itemOf.set(key, results.length);
@@ -1174,9 +1218,40 @@ function textGroup(store, ctx, typed) {
     lastAi = e.ai;
     results.push(r);
   }
+  // SPEC 32.3: the words of a kana reading given in brackets, after the main words, under their own label
+  const readLines = [];
+  for (const rd of readings) {
+    const part = segmentText(store, rd.reading, { ranking: ctx.ranking, wordLimit: 0 });
+    const chips = [];
+    let first = true;
+    for (const seg of part.segments) {
+      if (seg.kind !== 'word') { chips.push({ kind: seg.kind, text: seg.text }); continue; }
+      const key = keyOf(seg);
+      if (!itemOf.has(key)) {
+        itemOf.set(key, results.length);
+        const r = resultOf(seg);
+        r.fromReading = true;
+        if (first) { r.readingHead = READING_HEAD; first = false; }
+        results.push(r);
+      }
+      chips.push({ kind: 'word', text: seg.text, item: itemOf.get(key) });
+    }
+    readLines.push({ base: rd.base, reading: rd.reading, chips });
+  }
   const line = [];
   shown = 0;
   for (const seg of segments) {
+    if (seg.kind === 'unknown') { // SPEC 32.2: a kanji with a row is a chip of its own
+      let run = '';
+      for (const ch of Array.from(seg.text)) {
+        const item = shown < TEXT_SEGMENTS_MAX ? itemOf.get(`kanji:${ch}`) : undefined;
+        if (item === undefined) { run += ch; continue; }
+        if (run) { line.push({ kind: 'unknown', text: run }); run = ''; }
+        line.push({ kind: 'unknown', text: ch, item });
+      }
+      if (run) line.push({ kind: 'unknown', text: run });
+      continue;
+    }
     if (seg.kind !== 'word') { line.push({ kind: seg.kind, text: seg.text }); continue; }
     if (shown >= TEXT_SEGMENTS_MAX) { line.push({ kind: 'more', text: seg.text }); continue; }
     shown++;
@@ -1187,7 +1262,7 @@ function textGroup(store, ctx, typed) {
   if (truncated) notes.push(TEXT_CUT_NOTE);
   if (words.length > TEXT_SEGMENTS_MAX) notes.push(TEXT_MORE_NOTE);
   return { id: 'text', title: TITLES.text, note: notes.join(' '), notes, results, total: results.length, dym: null,
-    best: results[0], segments: line, wordCount: words.length, alts: altLines };
+    best: results[0], segments: line, wordCount: words.length, alts: altLines, readings: readLines };
 }
 
 function countTier(map, maxTier) {

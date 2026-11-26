@@ -990,3 +990,93 @@ Checked by hand on the real packs the same day: 30 partly-kana spellings found, 
   content, nested pairs too, and Aozora ruby `《...》` together with its start mark `｜`. A bracket that is not closed
   stays. A query that would become empty is kept as typed. The search box keeps showing what was typed.
 - When off, the page sends `keepBrackets: true` and the query is searched as typed.
+
+## 32. Owner's bug batch 2026-11-26
+Rulings by the coordinator, one line each; acceptance rows in `tools/query.mjs --accept` (rows "32.x"), unit tests in
+`test/bugbatch.test.mjs`, page tests in `test/scroll.test.mjs`.
+
+### 32.1 An i-adjective stem in し is a word
+- Ruling: 悩ましい without its い (悩まし) is a valid piece in the splitter and in a single-word search (kanji, kana,
+  romaji `nayamashi`), labelled "adjective stem". Code: deinflection rule し -> しい (adj-i only; the stem before し
+  must not be empty). 悩ましボディを -> 悩まし (悩ましい) / ボディ / を.
+
+### 32.2 A kanji that matches no word gets its kanji row
+- Ruling: every kanji of a piece that matches no word (shown as an unknown piece) gets its KANJIDIC entry (meanings,
+  on and kun readings) as its row in the word list, at its place in the text. In line 1 that kanji is a chip (dashed
+  border) that scrolls to the row. The row links to a search for the kanji alone (28.2: the words that hold it).
+  A kanji without KANJIDIC data stays dim text. Result shape: `{ pack: 'kanji', kanji, kd: { m, on, kun } }`;
+  `store.getRecord('kanji', ...)` is null.
+- Why a single kanji shows alone in a split (owner's question): a kanji is its own piece only when no dictionary
+  word starts at that character and fits the text after it; 悩 in 悩ましボディ was alone because 悩まし was no word
+  before 32.1.
+
+### 32.3 Kana in brackets after a kanji is a reading
+- Ruling: brackets right after a kanji that hold only kana (round, half or full width, and Aozora 《...》) are a
+  reading given by the text (game / novel furigana). The split follows the bracket setting as before (31: on =
+  left out). When the setting is on, the "Words in this text" group also shows the line
+  `Reading given in the text: <the reading>` (its words as chips) and lists the words of that reading after the main
+  words, under the label `From the reading in brackets` (a word the main split already lists is not repeated).
+  Brackets holding anything else: unchanged (31). With the setting off the text in brackets is part of the split.
+  A query that has no "Words in this text" group (one word, e.g. 嵩(かさ)にきて) shows no reading line.
+- Code: `bracketReadings()` and `textGroup()` in `engine.js`; `READING_LINE`, `.readline` in `render.js`.
+
+### 32.4 Nearest Jisho additions (words the data lacks)
+- Ruling: a small hand-made word list shipped with the APP CODE, not with the data: `app/search/additions.js`
+  (`ADDITIONS`), source label `Nearest Jisho additions` (tag on cards and the entry page; field `src: "nj"`). Each
+  record has the words-pack shape (SPEC 3) with JMdict part-of-speech codes, so deinflection works. No data rebuild,
+  no data release.
+- Ranking: common flag set, rank ff = fn = 15000 (a mid-frequency word, P = 7 of the SPEC 18 table).
+- Merge: `PackStore.loadPack('words')` appends the records after the last data record (ids n, n + 1, ...) and inserts
+  their keys into the r, k and e key spaces (`mergeRecords`, `mergeKeys` in `packs.js`: one pass, keys stay sorted)
+  before the lazy indexes are built. So the worker, `tools/query.mjs`, the text splitter, the partly-kana search
+  and the entry page all see them. A record is skipped when the pack already has one of its forms with one of its
+  readings (a later JMdict that gains the word wins). `new PackStore(readFile, { additions: false })` turns it off.
+- First entries: くちい (adj-i; full (stomach); satiated; sated), 血判状 (けっぱんじょう; n; written pledge sealed with
+  blood; blood-sealed oath). Neither is in JMdict (jisho.org API) nor in the Wiktionary pack (checked 2026-11-26).
+- New deinflection rule for the i-adjective + なる: くなる -> い, "become (-ku naru)" (くちくなった -> くちい).
+
+### 32.5 A one-kanji piece after a noun is read as a suffix
+- Ruling: a one-kanji piece directly after a noun piece (a record with a sense tagged n, n-adv, n-t, n-pr or n-suf)
+  takes the record whose part of speech includes a suffix tag (suf, n-suf) and whose reading is an on reading of the
+  kanji (KANJIDIC), best rank first. Applies to the class (状, 的, 性, 化, 者, 家, 式 ...). Only the record shown
+  changes; the split and its weights stay. ゼリー状 -> 状 = じょう, not 様 (さま). Code: `suffixAfterNoun` in
+  `segment.js`.
+
+### 32.6 Stem suffixes
+- Ruling: deinflection of stem suffixes, each with its own label:
+  na-adjective + げ / さ / そう / すぎる / らしい; i-adjective stem + げ / さ / そう / み / すぎる / がる (さ, そう, すぎる
+  existed with their old labels); noun + っぽい / らしい.
+- Labels (`STEM` in `deinflect.js`): -ge: seeming, looking; -sa: the degree of it (noun); -sou: looks like;
+  -sugiru: too much; -rashii: seems, typical of; -mi: the quality of it (noun); -garu: shows signs of feeling;
+  -ppoi: -ish, like. Only the -ge label was given by the ruling; the others are the worker's wording.
+- Note of such a hit: `<typed> is <base> + <label>` and the other rules of the chain in brackets
+  (`うろんげ is 胡乱 + -ge: seeming, looking`, `寒がって is 寒い + -garu: shows signs of feeling (te-form)`).
+- A word with its own entry stays first: an exact match (悩ましげ) is a true tier-0 hit as before; among deinflected
+  hits, and in the splitter's choice of record, a base + stem suffix comes after an own entry (寒がって: 寒がる, then
+  寒い).
+- uronge / うろんげ -> 胡乱 first; 胡乱げ is one piece.
+
+### 32.7 A particle before a kanji is not part of a partly-kana word
+- Ruling (mirror of 30.3): rule 5 refuses a match whose kana part is a single leading kana that is a particle
+  (も は が を に と で の へ や か), when a kanji word ends right before it and the rest is a word by rule 1 to 3.
+  尻も掻いて -> 尻 / も / 掻いて (掻く), not 藻掻く. も掻いて alone is still 藻掻く. Code: `refuseAt` in `segment.js`.
+
+### 32.8 Masu-stem endings after derived stems
+- Ruling: ながら, つつ, たがる, そう were added to the masu-stem endings (たい, すぎる, なさい, ます ... existed). They
+  chain after the derived stems (causative, passive, potential, causative-passive), which conjugate as ichidan verbs.
+  shobotsukasenagara / しょぼつかせながら -> しょぼつく, "causative + while (-nagara)".
+
+### 32.9 toranu tanuki
+- Works on current code: `toranu tanuki` and `とらぬたぬき` list 捕らぬ狸の皮算用 first in "Japanese words", in
+  `tools/query.mjs` and in the page (headless Chrome, 2026-11-26).
+
+### 32.10 Where the result list stands (scroll)
+- Ruling: a new result set always shows from the top (scroll 0) unless the query is unchanged (a pack arrived, the
+  full result after the fast one). Opening an entry page or expanding "more" scrolls so the opened item's header is
+  at the top of the view (below the sticky search row): the entry page opens at its top; "Show more" puts the first
+  new card of that group at the top; "More examples" puts its card's header at the top. Back (23) returns to the
+  exact scroll position the list had before: from an entry page, a panel, or another query.
+- Code (`app/main.js`): `placeList()` after every result; `scrollToTop()`; `writeQuery()` saves the list's scroll
+  position in the history entry it leaves; `route()` gives it back when that query's results arrive; a `#q=` link
+  inside the list ("N other entries for X", a kanji row) is a history step like a suggestion chip.
+- Not changed: a chip of line 1 (17.4) still scrolls only as far as needed to show its whole item.

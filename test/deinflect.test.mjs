@@ -55,7 +55,9 @@ test('POS tag bits', () => {
   assert.equal(posBits('vs-s'), T.VS);
   assert.equal(posBits('vz'), T.VZ);
   assert.equal(posBits('adj-i'), T.ADJ);
-  assert.equal(posBits('n'), 0);
+  assert.equal(posBits('n'), T.N); // SPEC 32.6: noun + -ppoi / -rashii
+  assert.equal(posBits('adj-na'), T.ADJNA);
+  assert.equal(posBits('prt'), 0);
 });
 
 test('negative in -n and -nu (SPEC 28.3)', () => {

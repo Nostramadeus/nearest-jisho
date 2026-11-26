@@ -10,9 +10,13 @@ export const T = {
   VZ: 32,      // zuru
   ADJ: 64,     // i-adjective (also -tai, -nai forms)
   V5KS: 128,   // iku / yuku (v5k-s)
-  V5ARU: 256,  // kudasaru, nasaru ... (v5aru)
+  V5ARU: 256, // kudasaru, nasaru ... (v5aru)
+  ADJNA: 512,  // na-adjective (adj-na): stem suffixes -ge, -sa, -sou, -sugiru, -rashii (SPEC 32.6)
+  N: 1024,     // noun: -ppoi, -rashii (SPEC 32.6)
 };
 const ALL = 0x7fffffff;
+/** Noun tags for the noun + -ppoi / -rashii rules (SPEC 32.6). */
+const NOUN_POS = new Set(['n', 'n-adv', 'n-t', 'n-pr', 'n-suf']);
 
 /** POS tag -> type bits. */
 export function posBits(tag) {
@@ -24,6 +28,8 @@ export function posBits(tag) {
   if (tag === 'vs-i' || tag === 'vs-s') return T.VS;
   if (tag === 'vz') return T.VZ;
   if (tag === 'adj-i' || tag === 'adj-ix') return T.ADJ;
+  if (tag === 'adj-na') return T.ADJNA;
+  if (NOUN_POS.has(tag)) return T.N;
   return 0;
 }
 
@@ -36,7 +42,26 @@ const N = {
   taiNeg: 'negative want (-takunai)', taiPast: 'past want (-takatta)', prog: 'progressive (-te iru)',
   chau: 'completed (-chau)', sugiru: 'too much (-sugiru)', nasai: 'command (-nasai)', adv: 'adverb (-ku)',
   sa: 'noun (-sa)', sou: 'looks like (-sou)',
+  adjStem: 'adjective stem', // SPEC 32.1: 悩まし = 悩ましい without its い
+  kuNaru: 'become (-ku naru)', // SPEC 32.4: くちくなる = くちい + なる
+  nagara: 'while (-nagara)', tsutsu: 'while (-tsutsu)', tagaru: 'wants (-tagaru)', // SPEC 32.8
 };
+/**
+ * Stem suffixes (SPEC 32.6): each has its own label, and the note names the base word + the label
+ * (うろんげ is 胡乱 + -ge: seeming, looking) instead of "the ... form of".
+ */
+export const STEM = {
+  ge: '-ge: seeming, looking',
+  sa: '-sa: the degree of it (noun)',
+  sou: '-sou: looks like',
+  sugiru: '-sugiru: too much',
+  rashii: '-rashii: seems, typical of',
+  mi: '-mi: the quality of it (noun)',
+  garu: '-garu: shows signs of feeling',
+  ppoi: '-ppoi: -ish, like',
+};
+const STEM_LABELS = new Set(Object.values(STEM));
+export const isStemLabel = (name) => STEM_LABELS.has(name);
 
 const RULES = []; // [from, to, cin, cout, name]
 function r(from, to, cin, cout, name) { RULES.push([from, to, cin, cout, name]); }
@@ -53,6 +78,10 @@ function stemForms(stem, to, cout) {
   r(stem + 'たかった', to, T.INIT, cout, N.taiPast);
   r(stem + 'すぎる', to, T.V1, cout, N.sugiru);
   r(stem + 'なさい', to, T.INIT, cout, N.nasai);
+  r(stem + 'ながら', to, T.INIT, cout, N.nagara); // SPEC 32.8
+  r(stem + 'つつ', to, T.INIT, cout, N.tsutsu);
+  r(stem + 'たがる', to, T.V5, cout, N.tagaru);
+  r(stem + 'そう', to, T.INIT, cout, N.sou);
 }
 // Forms built on the te-form / ta-form.
 function teForms(te, ta, to, cout) {
@@ -174,6 +203,21 @@ r('ければ', 'い', T.INIT, T.ADJ, N.ba);
 r('さ', 'い', T.INIT, T.ADJ, N.sa);
 r('そう', 'い', T.INIT, T.ADJ, N.sou);
 r('すぎる', 'い', T.V1, T.ADJ, N.sugiru);
+r('くなる', 'い', T.V5, T.ADJ, N.kuNaru); // SPEC 32.4: くちくなった
+r('し', 'しい', T.INIT, T.ADJ, N.adjStem); // SPEC 32.1: 悩まし (needs a stem: see deinflect)
+// SPEC 32.6: stem suffixes. i-adjective stem + げ / み / がる (さ, そう, すぎる above)
+r('げ', 'い', T.INIT, T.ADJ, STEM.ge);
+r('み', 'い', T.INIT, T.ADJ, STEM.mi);
+r('がる', 'い', T.V5, T.ADJ, STEM.garu);
+// na-adjective + げ / さ / そう / すぎる / らしい
+r('げ', '', T.INIT, T.ADJNA, STEM.ge);
+r('さ', '', T.INIT, T.ADJNA, STEM.sa);
+r('そう', '', T.INIT, T.ADJNA, STEM.sou);
+r('すぎる', '', T.V1, T.ADJNA, STEM.sugiru);
+r('らしい', '', T.INIT | T.ADJ, T.ADJNA, STEM.rashii);
+// noun + っぽい / らしい
+r('っぽい', '', T.INIT | T.ADJ, T.N, STEM.ppoi);
+r('らしい', '', T.INIT | T.ADJ, T.N, STEM.rashii);
 
 // index rules by the last character of `from`
 const BY_LAST = new Map();
@@ -203,7 +247,7 @@ export function deinflect(word, maxDepth = 2) {
         if (!cand.form.endsWith(from)) continue;
         const stem = cand.form.slice(0, cand.form.length - from.length);
         const form = stem + to;
-        if (!stem && to.length <= 1) continue; // a bare ending is not a word
+        if (!stem && (to.length <= 1 || name === N.adjStem)) continue; // a bare ending is not a word
         if (form === word) continue;
         const prevType = seen.get(form) || 0;
         if ((prevType & cout) === cout) continue;
@@ -218,7 +262,15 @@ export function deinflect(word, maxDepth = 2) {
   return out;
 }
 
-/** Human note, e.g. "食べた is the past form of 食べる". */
+/**
+ * Human note, e.g. "食べた is the past form of 食べる". via = rule names joined by " + ", base side first.
+ * A stem suffix (SPEC 32.6) is named after the base: "うろんげ is 胡乱 + -ge: seeming, looking"; other rules of the
+ * same chain follow in brackets ("寒がって is 寒い + -garu: shows signs of feeling (te-form)").
+ */
 export function viaNote(typed, base, via) {
-  return `${typed} is the ${via} form of ${base}`;
+  const parts = String(via).split(' + ');
+  const stem = parts.filter(isStemLabel);
+  if (!stem.length) return `${typed} is the ${via} form of ${base}`;
+  const rest = parts.filter((x) => !isStemLabel(x));
+  return `${typed} is ${base} + ${stem.join(' + ')}${rest.length ? ` (${rest.join(' + ')})` : ''}`;
 }

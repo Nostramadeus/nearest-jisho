@@ -4,6 +4,7 @@ import { entryAddress, entryHash, usuallyKana } from './search/entry.js';
 import { firstGloss } from './favorites.js';
 import { kanaToRomaji } from './search/romaji.js';
 import { pitchHtml } from './search/pitch.js';
+import { ADDITIONS_SOURCE } from './search/additions.js';
 
 const KANA_ONLY = /^[\p{Script=Hiragana}\p{Script=Katakana}ー・]+$/u;
 const SAY_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/>' +
@@ -178,6 +179,7 @@ export function cardHtml(hit, gi, ri, opts = {}) {
   if (rec.j) tags.push(`<span class="tag g">N${esc(rec.j)}</span>`);
   if (isWikt) tags.push(rec.src === 'wj' ? '<span class="tag g">Japanese definition</span>' : '<span class="tag g">Wiktionary</span>');
   if (isName) for (const t of rec.t || []) tags.push(`<span class="tag g">${esc(label(NAME_TYPE, t))}</span>`);
+  if (rec.src === 'nj') tags.push(`<span class="tag g">${esc(ADDITIONS_SOURCE)}</span>`); // SPEC 32.4
   const notes = hit.note ? `<div class="note">${esc(hit.note)}</div>` : '';
   let body;
   if (isName) {
@@ -256,6 +258,7 @@ export function entryHtml(d, opts = {}) {
   if (rec.c) tags.push('<span class="tag">common</span>');
   if (rec.j) tags.push(`<span class="tag g">N${esc(rec.j)}</span>`);
   if (isWikt) tags.push(rec.src === 'wj' ? '<span class="tag g">Japanese definition</span>' : '<span class="tag g">Wiktionary</span>');
+  if (rec.src === 'nj') tags.push(`<span class="tag g">${esc(ADDITIONS_SOURCE)}</span>`); // SPEC 32.4
   if (!isWikt) {
     const seen = new Set();
     for (const s of rec.s || []) for (const m of s.m || []) {
@@ -377,22 +380,29 @@ export const ALT_WORDS_HEAD = 'Other split:';
 export function textGroupHtml(g, gi, opts = {}) {
   const words = g.wordCount || g.results.length;
   let html = `<section class="group textgroup" data-group="text"><h2>${esc(g.title)} <span class="count">${words}</span></h2>`;
-  html += '<p class="textline" lang="ja">' + (g.segments || []).map((x) => {
+  const chips = (list) => list.map((x) => {
     if (x.kind === 'word') return `<button type="button" class="chip" data-item="${x.item}">${esc(x.text)}</button>`;
+    // SPEC 32.2: a kanji that matches no word is a chip to its kanji row
+    if (x.kind === 'unknown' && x.item !== undefined) return `<button type="button" class="chip unk" data-item="${x.item}">${esc(x.text)}</button>`;
     if (x.kind === 'unknown') return `<span class="unk">${esc(x.text)}</span>`;
     return esc(x.text); // separators, and text after the first 60 words
-  }).join('') + '</p>';
+  }).join('');
+  html += '<p class="textline" lang="ja">' + chips(g.segments || []) + '</p>';
   if (g.alts && g.alts.length) {
     html += `<div class="altsplits"><p class="althead">${ALT_HEAD}</p>` + g.alts.map((a) =>
       '<p class="altline"><span lang="ja">' +
       a.chips.map((x) => `<button type="button" class="chip" data-item="${x.item}">${esc(x.text)}</button>`).join('') +
       `</span> <span class="instead">instead of <span lang="ja">${esc(a.instead.join(' / '))}</span></span></p>`).join('') + '</div>';
   }
+  // SPEC 32.3: a kana reading given in brackets, as chips of its words
+  for (const rd of g.readings || []) html += `<p class="readline">${esc(READING_LINE)} <span lang="ja">${chips(rd.chips)}</span></p>`;
   for (const n of g.notes || (g.note ? [g.note] : [])) html += `<p class="textnote">${esc(n)}</p>`;
   g.results.forEach((h, i) => {
     if (h.altHead) html += `<p class="altsub">${ALT_WORDS_HEAD} <span lang="ja">${esc(h.altHead)}</span></p>`;
-    html += `<div class="titem${h.alt ? ' alt' : ''}" id="t-${i}">`;
-    if (h.fn) html += functionRowHtml(h);
+    if (h.readingHead) html += `<p class="altsub">${esc(h.readingHead)}</p>`;
+    html += `<div class="titem${h.alt ? ' alt' : ''}${h.fromReading ? ' reading' : ''}" id="t-${i}">`;
+    if (h.pack === 'kanji') html += kanjiRowHtml(h);
+    else if (h.fn) html += functionRowHtml(h);
     else {
       html += cardHtml(h, gi, i, opts);
       if (h.others > 0) {
@@ -402,6 +412,23 @@ export function textGroupHtml(g, gi, opts = {}) {
     html += '</div>';
   });
   return html + '</section>';
+}
+
+export const READING_LINE = 'Reading given in the text:';
+
+/**
+ * SPEC 32.2: row of a kanji that matches no word: the kanji, its meanings and its on / kun readings (KANJIDIC).
+ * It links to a search for the kanji alone (SPEC 28.2: the words that hold it).
+ */
+export function kanjiRowHtml(h) {
+  const d = h.kd || {};
+  const rd = [];
+  if (d.on && d.on.length) rd.push(`On <span lang="ja">${esc(d.on.join('、'))}</span>`);
+  if (d.kun && d.kun.length) rd.push(`Kun <span lang="ja">${esc(d.kun.join('、'))}</span>`);
+  return `<a class="fnrow krow" href="#q=${encodeURIComponent(h.kanji)}"><span class="seg" lang="ja">${esc(h.kanji)}</span>` +
+    ' <span class="pos">kanji</span>' +
+    `${d.m && d.m.length ? ` <span class="info">${esc(d.m.join(', '))}</span>` : ''}` +
+    `${rd.length ? ` <span class="kread">${rd.join(' · ')}</span>` : ''}</a>`;
 }
 
 /** Compact row for a function word: segment, reading, part of speech in full words, first gloss; links to the entry. */
