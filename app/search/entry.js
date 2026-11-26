@@ -8,16 +8,21 @@ export const hasKanji = (s) => KANJI_RE.test(s || '');
 
 export { usuallyKana, shownHead } from './engine.js'; // SPEC 19.2 headword rule (defined in engine.js)
 
-/** Address parts of a record: w = first written form or first kana form, r = first kana form. */
-export function entryAddress(pack, rec) {
+/**
+ * Address parts of a record: w = first written form or first kana form, r = first kana form. SPEC 34.12: n = the
+ * record's place (0, 1, ...) among the records that share (w, r, p), in id order; only kept when > 0.
+ */
+export function entryAddress(pack, rec, n = 0) {
   const w = (rec.k && rec.k[0]) || (rec.r && rec.r[0]) || '';
   const r = (rec.r && rec.r[0]) || '';
-  return { w, r, p: pack };
+  const a = { w, r, p: pack };
+  if (n > 0) a.n = n;
+  return a;
 }
 
-/** Hash for an entry address: #w=..&r=..&p=.. */
-export function entryHash({ w, r, p }) {
-  return `#w=${encodeURIComponent(w)}&r=${encodeURIComponent(r)}&p=${encodeURIComponent(p)}`;
+/** Hash for an entry address: #w=..&r=..&p=.. (+ &n=.. when n > 0, SPEC 34.12) */
+export function entryHash({ w, r, p, n }) {
+  return `#w=${encodeURIComponent(w)}&r=${encodeURIComponent(r)}&p=${encodeURIComponent(p)}${n > 0 ? `&n=${n}` : ''}`;
 }
 
 /** Parse "#w=..&r=..&p=.." (or without #). Returns null when it is not an entry address. */
@@ -33,15 +38,34 @@ export function parseEntryHash(hash) {
     out[part.slice(0, i)] = v;
   }
   if (!out.w || !out.p) return null;
-  return { w: out.w, r: out.r || '', p: out.p };
+  const a = { w: out.w, r: out.r || '', p: out.p };
+  const n = Number.parseInt(out.n, 10); // SPEC 34.12: an old address without n is n = 0
+  if (n > 0) a.n = n;
+  return a;
 }
 
 /**
  * Resolve an address to a record id (SPEC 10.2): exact lookup of w in space k of the pack (space r via canonical
- * romaji when w has no kanji), then the record whose kana forms include r; several -> lowest id. -1 if none.
+ * romaji when w has no kanji), then the records whose kana forms include r, in id order; SPEC 34.12: the n-th of
+ * them (n = 0 without &n=, or when there are fewer). -1 if none.
  */
-export function findEntry(store, pack, w, r) {
-  if (!store.has(pack) || !w) return -1;
+export function findEntry(store, pack, w, r, n = 0) {
+  const ids = matchingIds(store, pack, w, r);
+  if (!ids.length) return -1;
+  return ids[n > 0 && n < ids.length ? n : 0];
+}
+
+/** SPEC 34.12: the address ordinal of record id (0 when it is the first, or the only, record of its address). */
+export function addressOrdinal(store, pack, id) {
+  if (!store.has(pack) || id < 0) return 0;
+  const a = entryAddress(pack, store.getRecord(pack, id));
+  const i = matchingIds(store, pack, a.w, a.r).indexOf(id);
+  return i > 0 ? i : 0;
+}
+
+/** Records of an address (w, r, p), id order (SPEC 10.2 lookup). */
+function matchingIds(store, pack, w, r) {
+  if (!store.has(pack) || !w) return [];
   const ids = new Set();
   const k = store.keySpace(pack, 'k');
   const nw = w.normalize('NFKC');
@@ -51,15 +75,15 @@ export function findEntry(store, pack, w, r) {
     const key = kanaToRomaji(w);
     if (rs && key) { const i = rs.find(key); if (i >= 0) for (const id of rs.idsOf(i)) ids.add(id); }
   }
-  let best = -1;
+  const out = [];
   for (const id of ids) {
     const rec = store.getRecord(pack, id);
     const forms = [...(rec.k || []), ...(rec.r || [])].map((f) => f.normalize('NFKC'));
     if (!forms.includes(nw)) continue;
     if (r && !(rec.r || []).includes(r)) continue;
-    if (best < 0 || id < best) best = id;
+    out.push(id);
   }
-  return best;
+  return out.sort((a, b) => a - b);
 }
 
 /** Distinct kanji of a headword, in order, with their KANJIDIC data (null when missing). */
@@ -185,7 +209,7 @@ export function entryData(store, pack, id, { ranking = 'fiction', sentLoading = 
   const readings = readingsByPriority(rec);
   const reading = readings[0] || '';
   const data = {
-    pack, rec, head, reading, readings,
+    pack, rec, head, reading, readings, n: addressOrdinal(store, pack, id), // SPEC 34.12
     romaji: reading ? kanaToRomaji(reading) : '',
     kanji: kanjiBlocks(store, written),
     written,
@@ -200,7 +224,7 @@ export function entryData(store, pack, id, { ranking = 'fiction', sentLoading = 
     const exclude = pack === 'words' ? id : -1;
     const row = (wid) => {
       const wr = store.getRecord('words', wid);
-      const a = entryAddress('words', wr);
+      const a = entryAddress('words', wr, addressOrdinal(store, 'words', wid));
       const first = wr.s && wr.s[0] && wr.s[0].g ? wr.s[0].g[0] : '';
       const shown = shownHead(wr);
       return { ...a, head: shown, reading: shown !== a.r ? a.r : '', gloss: first };

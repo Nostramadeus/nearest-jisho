@@ -137,7 +137,13 @@ export class KeySpace {
     }
     return out;
   }
-  _buildFold() {
+  _buildFold() { for (const _ of this.foldSteps()) { /* run to the end */ } }
+  /**
+   * SPEC 34.14: the fold index built in slices of `slice` keys; yields between slices (warmAsync lets searches run
+   * there). A lookup in the meantime builds the index at once; the steps then stop without replacing it.
+   */
+  *foldSteps(slice = Infinity) {
+    if (this._fold) return;
     const K = this.count;
     let size = 1;
     while (size < K) size <<= 1;
@@ -148,22 +154,29 @@ export class KeySpace {
       const h = hash32(fold(this.key(i))) & mask;
       hashes[i] = h;
       bptr[h + 1]++;
+      if ((i + 1) % slice === 0) { yield; if (this._fold) return; }
     }
     for (let h = 0; h < size; h++) bptr[h + 1] += bptr[h];
     const fill = bptr.slice(0, size);
     const bidx = new Uint32Array(K);
     for (let i = 0; i < K; i++) bidx[fill[hashes[i]]++] = i;
-    this._fold = { mask, bptr, bidx };
+    if (!this._fold) this._fold = { mask, bptr, bidx };
   }
 
   /** 26-bit letter masks per key (for tier-3 pruning), built lazily. */
   masks() {
-    if (!this._mask) {
-      const m = new Uint32Array(this.count);
-      for (let i = 0; i < this.count; i++) m[i] = letterMask(this.str, this.off[i], this.off[i + 1] - 1);
-      this._mask = m;
-    }
+    if (!this._mask) for (const _ of this.maskSteps()) { /* run to the end */ }
     return this._mask;
+  }
+  /** SPEC 34.14: the letter masks in slices (see foldSteps). */
+  *maskSteps(slice = Infinity) {
+    if (this._mask) return;
+    const m = new Uint32Array(this.count);
+    for (let i = 0; i < this.count; i++) {
+      m[i] = letterMask(this.str, this.off[i], this.off[i + 1] - 1);
+      if ((i + 1) % slice === 0) { yield; if (this._mask) return; }
+    }
+    if (!this._mask) this._mask = m;
   }
 }
 
@@ -187,6 +200,9 @@ class Pack {
     return rec;
   }
 }
+
+/** SPEC 34.14: keys per warm-up slice (about 10 to 30 ms on a phone). */
+export const WARM_SLICE = 20000;
 
 const STOP = new Set('a an the of to in on at for and or by with as is be it that from'.split(' '));
 /** English keys of one gloss (SPEC 3, space e; same rule as build/lib/packwriter.mjs englishKeys). */
@@ -342,6 +358,19 @@ export class PackStore {
     const r = p.spaces.r;
     if (r) { r.foldLookup(''); r.masks(); }
     if (p.spaces.e) p.spaces.e.masks();
+  }
+
+  /**
+   * SPEC 34.14: the same work as warm(), in slices of `slice` keys with `await pause()` between them, so that a
+   * search message waiting in the worker runs between two slices instead of after the whole pack.
+   */
+  async warmAsync(pack, pause, slice = WARM_SLICE) {
+    const p = this.packs[pack];
+    if (!p) return;
+    const steps = [];
+    if (p.spaces.r) steps.push(p.spaces.r.foldSteps(slice), p.spaces.r.maskSteps(slice));
+    if (p.spaces.e) steps.push(p.spaces.e.maskSteps(slice));
+    for (const gen of steps) for (const _ of gen) await pause();
   }
 
   has(pack) { return pack === SENT ? !!this.sent : !!this.packs[pack]; }

@@ -48,6 +48,19 @@ export function readingsByPriority(rec) {
 }
 
 /**
+ * SPEC 34.17: kana forms that JMdict allows with the written form `k` (<re_restr>, stored as `rec.rr` = { reading:
+ * [written forms] } for the restricted readings only), in readingsByPriority order. No `k`, no `rr`, or nothing left:
+ * every reading.
+ */
+export function readingsFor(rec, k) {
+  const all = readingsByPriority(rec);
+  if (!k || !rec || !rec.rr) return all;
+  const nk = String(k).normalize('NFKC');
+  const ok = all.filter((r) => !rec.rr[r] || rec.rr[r].some((f) => f.normalize('NFKC') === nk));
+  return ok.length ? ok : all;
+}
+
+/**
  * Key of a words record in the pitch pack: "<first kanji form>\t<first shown kana form in hiragana>", or the hiragana
  * of that kana form for a record without a kanji form (first shown = first of readingsByPriority). '' when the record has no kana form.
  */

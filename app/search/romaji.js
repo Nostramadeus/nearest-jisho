@@ -181,8 +181,12 @@ export function latinRewrite(t) {
   return out;
 }
 
-/** Wapuro romaji -> hiragana. Returns { kana, clean }; clean=false when a Latin letter stays unconverted. */
-export function romajiToKana(text) {
+/**
+ * Wapuro romaji -> hiragana. Returns { kana, clean }; clean=false when a Latin letter stays unconverted.
+ * nn before a vowel or y is read as ん + n-row (konnichiwa); opts.nnBoth (SPEC 34.4) reads it the IME way instead,
+ * as ん + the vowel (tanni = たんい, konnya = こんや).
+ */
+export function romajiToKana(text, opts = {}) {
   const t = prepLatin(text);
   let out = '';
   let clean = true;
@@ -198,7 +202,7 @@ export function romajiToKana(text) {
       if (n1 === "'") { out += 'ん'; i += 2; continue; }
       if (n1 === 'n') {
         const n2 = t[i + 2];
-        if (n2 !== undefined && ('aiueo'.includes(n2) || n2 === 'y')) { out += 'ん'; i += 1; continue; } // konnichiwa
+        if (n2 !== undefined && ('aiueo'.includes(n2) || n2 === 'y') && !opts.nnBoth) { out += 'ん'; i += 1; continue; } // konnichiwa
         out += 'ん'; i += 2; continue;
       }
       if (n1 === undefined || !isLetter(n1) || (!'aiueoy'.includes(n1))) { out += 'ん'; i++; continue; }
@@ -223,6 +227,19 @@ const VARIANT = { si: 'shi', ti: 'chi', tu: 'tsu', hu: 'fu', zi: 'ji', sy: 'sh',
 /** Variant rewrite on raw Latin letters (used when romajiToKana is not clean). */
 export function variantRewrite(letters) {
   return letters.replace(/[^a-z]/g, '').replace(/(?<![sc])hu|si|ti|tu|zi|sy|ty|zy/g, (m) => VARIANT[m]);
+}
+
+/**
+ * SPEC 34.4: the second reading of a Latin query with nn before a vowel or y (tanni -> "tan'i"), or null when the
+ * query has no such nn or does not convert cleanly. canon() keeps the first reading (たんに).
+ */
+export function nnAltCanon(query) {
+  const q = prepLatin(String(query)).trim().replace(/\s+/g, '');
+  if (!/nn[aiueoy]/.test(q)) return null;
+  const { kana, clean } = romajiToKana(q, { nnBoth: true });
+  if (!clean) return null;
+  const alt = kanaToRomaji(kana);
+  return alt && alt !== canon(query) ? alt : null;
 }
 
 /** Canonical romaji of a query (SPEC 4.1). */

@@ -30,8 +30,10 @@ export function writePack(dir, name, records, meta, layout = 'json') {
   const sp = { r: new Map(), k: new Map(), e: new Map() };
   const add = (m, k, id) => { if (!k) return; if (!m.has(k)) m.set(k, new Set()); m.get(k).add(id); };
   records.forEach((rec, id) => {
-    for (const f of rec.r || []) add(sp.r, kanaToRomaji(f), id);
-    for (const f of [...(rec.k || []), ...(rec.r || [])]) add(sp.k, f.normalize('NFKC'), id);
+    // like the build (SPEC 24): search-only forms (rec.h) are search keys too
+    const kanaH = (rec.h || []).filter((f) => /^[ぁ-ヿ]+$/.test(f));
+    for (const f of [...(rec.r || []), ...kanaH]) add(sp.r, kanaToRomaji(f), id);
+    for (const f of [...(rec.k || []), ...(rec.r || []), ...(rec.h || [])]) add(sp.k, f.normalize('NFKC'), id);
     if (name === 'names' || rec.src === 'wj') return;
     (rec.s || []).forEach((s, si) => {
       for (const g of s.g || []) {

@@ -3,7 +3,7 @@
 
 export const FAV_KEY = 'nj.favorites';
 
-const same = (a, b) => a.w === b.w && a.r === b.r && a.p === b.p;
+const same = (a, b) => a.w === b.w && a.r === b.r && a.p === b.p && (a.n || 0) === (b.n || 0); // SPEC 34.12: n
 
 /** First gloss (words, Wiktionary) or first translation (names) of a record. */
 // ---------- SPEC 27.3: searches with no results (device only) ----------
@@ -60,24 +60,25 @@ export function createFavorites(storage, now = () => Date.now()) {
     get available() { return available; },
     /** Newest first. */
     list() { return read().sort((a, b) => (b.t || 0) - (a.t || 0)); },
-    has(w, r, p) { return read().some((x) => same(x, { w, r, p })); },
+    has(w, r, p, n = 0) { return read().some((x) => same(x, { w, r, p, n })); },
     /** Adds (or keeps) a favorite. `t` may be given to restore a removed row at its old place. */
-    add({ w, r, p, g = '', t, h }) {
+    add({ w, r, p, g = '', t, h, n = 0 }) {
       const list = read();
-      if (list.some((x) => same(x, { w, r, p }))) return true;
+      if (list.some((x) => same(x, { w, r, p, n }))) return true;
       const item = { w, r, p, g, t: typeof t === 'number' ? t : now() };
+      if (n > 0) item.n = n; // SPEC 34.12
       if (h && h !== w) item.h = h; // shown headword (SPEC 19.2: kana for uk words); identity stays (w, r, p)
       list.push(item);
       return write(list);
     },
-    remove(w, r, p) {
+    remove(w, r, p, n = 0) {
       const list = read();
-      const next = list.filter((x) => !same(x, { w, r, p }));
+      const next = list.filter((x) => !same(x, { w, r, p, n }));
       return next.length === list.length ? true : write(next);
     },
     /** Returns the new state (true = favorite). */
     toggle(item) {
-      if (this.has(item.w, item.r, item.p)) { this.remove(item.w, item.r, item.p); return false; }
+      if (this.has(item.w, item.r, item.p, item.n)) { this.remove(item.w, item.r, item.p, item.n); return false; }
       this.add(item);
       return true;
     },

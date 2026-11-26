@@ -2,6 +2,7 @@
 // Pure module: runs in the worker and in node.
 import { toHiragana, isKana } from './romaji.js';
 import { deinflect, posBits } from './deinflect.js';
+import { readingsFor } from './pitch.js';
 
 export const MIXED_MIN_LEN = 2;
 export const MIXED_MAX_LEN = 12;
@@ -68,6 +69,9 @@ function fits(K, kFlag, F, R) {
 
 const hira = (s) => Array.from(s, (ch) => (kanaCh(ch) ? toHiragana(ch) : ch));
 const END_PARTICLE_CU = new Set(Array.from(MIXED_END_PARTICLES, (ch) => ch.charCodeAt(0)));
+/** SPEC 34.3: particles refused as the key's first kanji typed as one kana (same list as SPEC 32.7). */
+export const MIXED_LEAD_PARTICLES = new Set(Array.from('もはがをにとでのへやか'));
+const LEAD_PARTICLE_CU = new Set(Array.from(MIXED_LEAD_PARTICLES, (ch) => ch.charCodeAt(0)));
 
 // ---- quick refusal by the kanji's own readings (KANJIDIC), so that almost no record has to be read ----
 const VOICED = 'がぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽ';
@@ -173,6 +177,9 @@ export function mixedSpans(store, pack, chars) {
     if (x < 0) { starts.push(pos, replaced); return; }
     if (kk(x)) { if (pos > 0 && TK[pos - 1] && T[pos - 1] === foldCU(str.charCodeAt(a + x))) left(x - 1, pos - 1, replaced); return; }
     for (let m = 1; m <= MIXED_KANJI_KANA_MAX && pos - m >= 0 && TK[pos - m]; m++) {
+      // SPEC 34.3 (mirror of 30.3): the key's FIRST kanji as one particle kana with text before it in the run
+      // (駅で会った is never 駅 + 出会った; 車で来た never 車 + 出来た). At the start of the run it stays allowed (32.7).
+      if (m === 1 && x === 0 && pos - 1 > 0 && LEAD_PARTICLE_CU.has(T[pos - 1])) continue;
       if (canRead(x, pos - m, m)) left(x - 1, pos - m, 1);
     }
   };
@@ -223,7 +230,8 @@ export function mixedSpans(store, pack, chars) {
                 const rec = store.getRecord(pack, id);
                 const pos = [];
                 for (const sense of rec.s || []) for (const q of sense.p || []) pos.push(q);
-                return { id, pos, R: (rec.r || []).map((r) => Array.from(toHiragana(r))) };
+                // SPEC 34.17: only the readings JMdict allows with this written form (re_restr)
+                return { id, pos, R: readingsFor(rec, k).map((r) => Array.from(toHiragana(r))) };
               }),
             };
             if (known.size >= MIXED_READINGS_MAX) known.delete(known.keys().next().value);

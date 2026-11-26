@@ -1,4 +1,4 @@
-// Deinflection (SPEC 4.8): inflected form -> base-form candidates, up to 2 chained rules.
+// Deinflection (SPEC 4.8): inflected form -> base-form candidates, up to 3 chained rules (SPEC 34.9).
 // A candidate is only a hit when a words-pack record has that form AND a POS matching `type` (see posBits).
 
 export const T = {
@@ -13,6 +13,8 @@ export const T = {
   V5ARU: 256, // kudasaru, nasaru ... (v5aru)
   ADJNA: 512,  // na-adjective (adj-na): stem suffixes -ge, -sa, -sou, -sugiru, -rashii (SPEC 32.6)
   N: 1024,     // noun: -ppoi, -rashii (SPEC 32.6)
+  VSN: 2048,   // noun that takes する (JMdict "vs"): 勉強した -> 勉強 (SPEC 34.5)
+  V1S: 4096,   // kureru (v1-s): imperative くれ (SPEC 34.1)
 };
 const ALL = 0x7fffffff;
 /** Noun tags for the noun + -ppoi / -rashii rules (SPEC 32.6). */
@@ -20,7 +22,9 @@ const NOUN_POS = new Set(['n', 'n-adv', 'n-t', 'n-pr', 'n-suf']);
 
 /** POS tag -> type bits. */
 export function posBits(tag) {
-  if (tag === 'v1' || tag === 'v1-s') return T.V1;
+  if (tag === 'v1') return T.V1;
+  if (tag === 'v1-s') return T.V1 | T.V1S;
+  if (tag === 'vs') return T.VSN;
   if (tag === 'v5k-s') return T.V5 | T.V5KS;
   if (tag === 'v5aru') return T.V5 | T.V5ARU;
   if (tag.startsWith('v5')) return T.V5;
@@ -36,7 +40,9 @@ export function posBits(tag) {
 const N = {
   polite: 'polite', politePast: 'polite past', politeNeg: 'polite negative', politePastNeg: 'polite past negative',
   politeVol: 'polite volitional', te: 'te-form', past: 'past', neg: 'negative', negPast: 'negative past',
-  negTe: 'negative te-form', zu: 'classical negative (-zu)', negN: 'negative (-n)', nu: 'classical negative (-nu)', ba: 'conditional (-ba)', tara: 'conditional (-tara)',
+  negTe: 'negative te-form', zu: 'classical negative (-zu)',
+  // SPEC 34.10: irrealis + ん is the negative (知らん) or the literary volitional (戦わん, あらんことを)
+  negN: "negative (-n) or literary volitional (-n, 'will / let us')", volN: "literary volitional (-n, 'will / let us')", nu: 'classical negative (-nu)', ba: 'conditional (-ba)', tara: 'conditional (-tara)',
   tari: 'listing (-tari)', potential: 'potential', passive: 'passive', potPass: 'potential or passive',
   causative: 'causative', causPass: 'causative-passive', vol: 'volitional', imp: 'imperative', tai: 'want (-tai)',
   taiNeg: 'negative want (-takunai)', taiPast: 'past want (-takatta)', prog: 'progressive (-te iru)',
@@ -45,6 +51,13 @@ const N = {
   adjStem: 'adjective stem', // SPEC 32.1: 悩まし = 悩ましい without its い
   kuNaru: 'become (-ku naru)', // SPEC 32.4: くちくなる = くちい + なる
   nagara: 'while (-nagara)', tsutsu: 'while (-tsutsu)', tagaru: 'wants (-tagaru)', // SPEC 32.8
+  // SPEC 34.2: conditionals and connectives
+  temo: 'even if (-te mo)', naide: 'without doing (-naide)', cha: 'te + wa (-cha)',
+  // SPEC 34.6: spoken contractions
+  toku: 'do in advance (-toku = -te oku)', chimau: 'completed (-chimau = -te shimau)', teku: 'go on doing (-te ku = -te iku)',
+  nakya: 'must (-nakya)', nakucha: 'must (-nakucha)', ee: 'colloquial (-ee)',
+  // SPEC 34.9: masu-stem compounds
+  nikui: 'hard to (-nikui)', yasui: 'easy to (-yasui)', ppanashi: 'left as it is (-ppanashi)',
 };
 /**
  * Stem suffixes (SPEC 32.6): each has its own label, and the note names the base word + the label
@@ -64,6 +77,7 @@ const STEM_LABELS = new Set(Object.values(STEM));
 export const isStemLabel = (name) => STEM_LABELS.has(name);
 
 const RULES = []; // [from, to, cin, cout, name]
+const ARU = new Set(['ある', '有る', '在る']);
 function r(from, to, cin, cout, name) { RULES.push([from, to, cin, cout, name]); }
 
 // Forms built on the masu stem (i-stem), shared by every verb class.
@@ -82,6 +96,11 @@ function stemForms(stem, to, cout) {
   r(stem + 'つつ', to, T.INIT, cout, N.tsutsu);
   r(stem + 'たがる', to, T.V5, cout, N.tagaru);
   r(stem + 'そう', to, T.INIT, cout, N.sou);
+  r(stem + 'そうな', to, T.INIT, cout, N.sou); // SPEC 34.9: 壊れそうな
+  r(stem + 'そうに', to, T.INIT, cout, N.sou);
+  r(stem + 'にくい', to, T.INIT | T.ADJ, cout, N.nikui);
+  r(stem + 'やすい', to, T.INIT | T.ADJ, cout, N.yasui);
+  r(stem + 'っぱなし', to, T.INIT, cout, N.ppanashi);
 }
 // Forms built on the te-form / ta-form.
 function teForms(te, ta, to, cout) {
@@ -93,12 +112,23 @@ function teForms(te, ta, to, cout) {
   r(te + 'る', to, T.V1, cout, N.prog);
   const chau = te.endsWith('で') ? te.slice(0, -1) + 'じゃう' : te.slice(0, -1) + 'ちゃう';
   r(chau, to, T.V5, cout, N.chau);
+  // SPEC 34.2 / 34.6: te + mo, te + wa (ちゃ / じゃ), spoken -toku, -chimau, -te ku
+  const voiced = te.endsWith('で');
+  const t0 = te.slice(0, -1);
+  r(te + 'も', to, T.INIT, cout, N.temo);
+  r(t0 + (voiced ? 'じゃ' : 'ちゃ'), to, T.INIT, cout, N.cha);
+  r(t0 + (voiced ? 'どく' : 'とく'), to, T.V5, cout, N.toku);
+  r(t0 + (voiced ? 'じまう' : 'ちまう'), to, T.V5, cout, N.chimau);
+  r(te + 'く', to, T.V5 | T.V5KS, cout, N.teku);
 }
 // Forms built on the negative stem (a-stem).
 function negForms(a, to, cout) {
   r(a + 'ない', to, T.INIT | T.ADJ, cout, N.neg);
   r(a + 'なかった', to, T.INIT, cout, N.negPast);
   r(a + 'なくて', to, T.INIT, cout, N.negTe);
+  r(a + 'ないで', to, T.INIT, cout, N.naide); // SPEC 34.2
+  r(a + 'なきゃ', to, T.INIT, cout, N.nakya); // SPEC 34.6
+  r(a + 'なくちゃ', to, T.INIT, cout, N.nakucha);
 }
 
 // Ichidan
@@ -116,6 +146,7 @@ r('させられる', 'る', T.V1, T.V1, N.causPass);
 r('よう', 'る', T.INIT, T.V1, N.vol);
 r('ろ', 'る', T.INIT, T.V1, N.imp);
 r('よ', 'る', T.INIT, T.V1, N.imp);
+r('れ', 'れる', T.INIT, T.V1S, N.imp); // SPEC 34.1: くれる -> くれ
 
 // Godan: [u, i, a, e, o, te, ta]
 const GODAN = [
@@ -200,6 +231,19 @@ r('かった', 'い', T.INIT, T.ADJ, N.past);
 r('くない', 'い', T.INIT | T.ADJ, T.ADJ, N.neg);
 r('くなかった', 'い', T.INIT, T.ADJ, N.negPast);
 r('ければ', 'い', T.INIT, T.ADJ, N.ba);
+r('かったら', 'い', T.INIT, T.ADJ, N.tara); // SPEC 34.2: 高かったら; with ない / たい: 食べなかったら, 行きたかったら
+r('かったり', 'い', T.INIT, T.ADJ, N.tari);
+r('くても', 'い', T.INIT, T.ADJ, N.temo); // 食べなくても
+r('そうな', 'い', T.INIT, T.ADJ, N.sou); // SPEC 34.9: 嬉しそうに
+r('そうに', 'い', T.INIT, T.ADJ, N.sou);
+// SPEC 34.6: ai / oi -> ee (すげえ, うるせー, 知らねー = 知らない, 行きてえ = 行きたい)
+for (const [a, o, e] of [['か', 'こ', 'け'], ['が', 'ご', 'げ'], ['さ', 'そ', 'せ'], ['ざ', 'ぞ', 'ぜ'], ['た', 'と', 'て'], ['だ', 'ど', 'で'],
+  ['な', 'の', 'ね'], ['ば', 'ぼ', 'べ'], ['ぱ', 'ぽ', 'ぺ'], ['ま', 'も', 'め'], ['ら', 'ろ', 'れ'], ['わ', 'を', 'え']]) {
+  for (const tail of ['え', 'ー']) {
+    r(e + tail, a + 'い', T.INIT, T.ADJ, N.ee);
+    if (o !== 'を') r(e + tail, o + 'い', T.INIT, T.ADJ, N.ee);
+  }
+}
 r('さ', 'い', T.INIT, T.ADJ, N.sa);
 r('そう', 'い', T.INIT, T.ADJ, N.sou);
 r('すぎる', 'い', T.V1, T.ADJ, N.sugiru);
@@ -231,9 +275,10 @@ export const RULE_COUNT = RULES.length;
 
 /**
  * Base-form candidates of `word` (hiragana or kanji+kana).
- * Returns [{ form, type, via: [rule names, base first] }], at most 2 chained rules, original word excluded.
+ * Returns [{ form, type, via: [rule names, base first], suru? }], at most 3 chained rules, original word excluded.
+ * suru: the form is a noun that takes する (type VSN); the note names it as <noun>する.
  */
-export function deinflect(word, maxDepth = 2) {
+export function deinflect(word, maxDepth = 3) {
   const out = [];
   const seen = new Map(); // form -> type bits already produced
   let frontier = [{ form: word, type: ALL, via: [] }];
@@ -252,9 +297,16 @@ export function deinflect(word, maxDepth = 2) {
         const prevType = seen.get(form) || 0;
         if ((prevType & cout) === cout) continue;
         seen.set(form, prevType | cout);
-        const item = { form, type: cout, via: [name, ...cand.via] };
+        // SPEC 34.10: ある + ん is never the negative (that is ない / あらぬ): あらん = literary volitional
+        const nm = name === N.negN && ARU.has(form) ? N.volN : name;
+        const item = { form, type: cout, via: [nm, ...cand.via] };
         out.push(item);
         next.push(item);
+        // SPEC 34.5: a suru form also stands for the noun that takes する (勉強した -> 勉強, JMdict "vs")
+        if (cout === T.VS && to === 'する' && stem && !seen.has('vsn:' + stem)) {
+          seen.set('vsn:' + stem, 1);
+          out.push({ form: stem, type: T.VSN, via: item.via, suru: true });
+        }
       }
     }
     frontier = next;

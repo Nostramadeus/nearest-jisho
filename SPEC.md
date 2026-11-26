@@ -1114,3 +1114,72 @@ home screen, or not to the state he expected.
 - Checks: `test/history.test.mjs` walks search -> entry -> another entry -> kanji search and presses Back at every
   step (view, query, scroll, history index), until the start screen and then out; the same walk in headless Chrome on
   the real data (2026-11-26) gave the same states and scroll positions. Not checked: the gesture on a real phone.
+
+## 34. Outside audit R-001 (2026-11-26)
+Source: `carbon/R-001-answer.md` (19 findings by an outside model that could not run code; every claim was checked
+against the code before a change). Rulings by the coordinator; one line per finding. Unit tests `test/audit.test.mjs`,
+page tests `test/audit-page.test.mjs`, acceptance rows "34.x" in `tools/query.mjs --accept`.
+
+- 34.1 Kana and kanji pieces with a homophone: the splitter now also tries deinflection when a true match exists. A
+  deinflected word wins the piece when its frequency band P is lower than that of every true match (しろ = する, not
+  白; くれ = くれる, not 暮れ; 来た = 来る, not the interjection 来た); same band: the true match stays (あれ = 彼, not
+  ある). Among such winners a common word goes first (くれ = 呉れる, not 抉る read くる). A stem suffix (32.6) never
+  wins this way. New rule: くれる (v1-s) imperative くれ. `te` + subsidiary verb chains were NOT added: the two pieces
+  (助けて / くれ) now each show the right word. Not fixed: 部屋にいた still splits にい / た, because にい matches 新
+  (さら / あら / にい) at the rank of the written form 新 (P 0); KNOWN row in the acceptance list, needs a ruling.
+- 34.2 Conditionals and connectives: i-adjective -kattara, -kattari, -kutemo; te + mo; -naide; te + wa (-cha / -ja).
+  With ない / たい they chain: 食べなかったら, 行きたかったら, 食べなくても.
+- 34.3 A partly-kana word (30) whose FIRST kanji is typed as one particle kana (もはがをにとでのへやか) with text
+  before it in the run is refused (駅で会った is never 駅 + 出会った). At the start of the run it is allowed (32.7). A
+  partly-kana (rule 5) or Wiktionary (rule 3) piece that is also deinflected weighs + 4 more (as rule 2 does).
+  Consequence: the splitter's own split of も掻いて alone is も / 掻いて; the search still lists 藻掻く first (30.2).
+- 34.4 Romaji nn before a vowel or y is ambiguous: both readings are searched (tanni = たんに and たんい), ranked by
+  frequency as usual. `nnAltCanon()` in `romaji.js`; deinflection also runs on the second reading.
+- 34.5 Nouns tagged vs deinflect through する: 勉強した -> 勉強 (type VSN), note "... is the past form of 勉強する".
+  benkyoushita finds 勉強.
+- 34.6 Spoken contractions: -toku / -doku (te oku), -chimau / -jimau (te shimau), -te ku / -de ku (te iku, conjugating
+  like iku), -nakya, -nakucha, and ai / oi -> ee for i-adjectives (すげえ, 知らねー = 知らない, 行きてえ = 行きたい).
+  A run-final っ / ッ / ー / 〜 is a separator (weight 0) when no word takes it (やめろっ！ -> やめろ).
+- 34.7 Katakana stems: deinflection also runs on the text as typed when it mixes katakana and hiragana (バグってる ->
+  バグる), and with katakana okurigana turned into hiragana (喰ッタ -> 喰う). Words only the Wiktionary pack has are
+  deinflected too (part of speech from the Wiktionary label: verb / 動詞, adj / 形容詞), in the splitter after the
+  exact Wiktionary match, in search when the words pack has no tier-0 hit (エモかった).
+- 34.8 Wiktionary build: a word is dropped only when JMdict has the same written form with the same reading (a
+  homophone alone no longer drops it); Japanese Wiktionary also keeps dialect (方言) and colloquial (口語) words, with
+  that label as a tag. Built behind the build flag `--wikt-wide`, which is OFF: the size change could not be measured
+  locally (no dumps on this PC). Every build logs `wikt wide rule (...): would add N records = P% of the current pack`,
+  so the next CI build gives the estimate; turn the flag on only if that is at most 30 %. Code: `wiktKeep()`,
+  `jmdictPairs()` in `build/lib/packs.mjs`.
+- 34.9 Deinflection goes up to 3 chained rules (食べられていなかった, 食べすぎちゃった, 読ませたくなかった). Masu-stem
+  -sou na / -sou ni (also after i-adjectives: 嬉しそうに), -nikui, -yasui, -ppanashi.
+- 34.10 Irrealis + ん is labelled "negative (-n) or literary volitional (-n, 'will / let us')"; for ある (有る, 在る)
+  only "literary volitional (-n, 'will / let us')": あらん is never called the negative of ある.
+- 34.11 Brackets (narrows 31): left out are only (a) a round bracket right after a kanji whose content is only kana or
+  only Latin letters, and (b) Aozora ruby 《...》 with the ｜ that starts its own ruby run. A bracket holding a clause
+  (any kanji, punctuation, or one after a non-kanji) stays in the text and is split like the rest.
+- 34.12 Entry addresses get `&n=<ordinal>` when several records share (w, r, p) (n = place in id order, kept only when
+  > 0). Old addresses and favorites without n keep working (n = 0). The worker adds `n` to every result; favorites
+  store it; the star and the entry page use it.
+- 34.13 "Words in this text" still renders the first 60 words; a "Show more words (N)" button asks for every word
+  (`textAll`) and replaces only the text group.
+- 34.14 Worker: a search starts one macrotask after its message, so searches already queued behind it are read first
+  and only the newest runs (fast and full). Pack warm-up (fold index, letter masks) runs in slices of 20,000 keys with a
+  break between slices (`warmAsync`), so a search can run during the warm-up of the names pack.
+- 34.15 Digits right before word characters start the piece: digits + a counter of 1 to 4 characters (a words record
+  with a sense tagged ctr) are one piece with the counter's entry (2つ = 箇 つ, 1ヶ月 = ヶ月). Digits alone stay plain
+  text (3本 = 本 ほん). Known limit: JMdict tags no counter sense for 分 (ふん), so 10分 stays 10 + 分 (ぶん).
+- 34.16 Same-reading kanji chips (27.1) also work for inflected words (振り帰った -> chip 振り返った; the chip is the
+  swapped text as typed) and only for queries of at most 12 characters that are not themselves an (inflected) word.
+- 34.17 A tier-0 hit found only through a search-only spelling (24, rec.h) gets the note "search-only spelling of
+  <word>" and does not close the near-match gate (omiage -> お土産). JMdict <re_restr> is kept in the words pack as
+  `rec.rr` = { reading: [written forms] } (next data build); cards, the text splitter's partly-kana check use only the
+  readings allowed with the written form (`readingsFor()` in `pitch.js`). Cards show the reading by priority
+  (`rec.rp`), like the entry page. Note: ふいんき (雰囲気) and たいく (体育) are shown readings in the current data, not
+  search-only ones, so the audit's examples do not trigger the note.
+- 34.18 Tapping a Recent search or a suggestion chip does not focus the search box (no keyboard over the results).
+  "Show more" appends the new cards to its group (open "More examples" toggles stay open).
+- 34.19 Android back gesture: whether there is a step to go back to comes from the page's own step index (`i` in every
+  history state, kept by `pushStep()` and `replaceStep()`), never from the WebView's `canGoBack()` (Chromium skips
+  entries pushed without a user gesture there, so it could be false while the page had steps and the app closed).
+  Replaces the canGoBack rule of 33.2.
+- Speed (node, PC, real packs, 2026-11-26): 96-character text 48 ms, 500 characters 135 to 140 ms (30.4: 94 to 139 ms).

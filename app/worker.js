@@ -1,13 +1,15 @@
 // Web Worker shell (SPEC 6, 14.3): picks the data in use pack by pack, loads packs, runs the engine, posts results.
 import { PackStore, SENT, LOAD_ORDER } from './search/packs.js';
 import { search } from './search/engine.js';
-import { findEntry, entryData } from './search/entry.js';
+import { findEntry, entryData, addressOrdinal } from './search/entry.js';
 import {
   chooseData, readerFor, versionOf, builtOf, checkUpdates, filesOf, DATA_BASE, BUNDLED_CACHE,
   updateAction, findUpdate, downloadPacks, updateOfferText, updateSignature, allMatch,
 } from './datasets.js';
 
 const post = (m) => self.postMessage(m);
+/** SPEC 34.14: one macrotask break: messages waiting in the queue (a search) run before the next slice. */
+const pause = () => new Promise((resolve) => setTimeout(resolve, 0));
 const hasCaches = typeof caches !== 'undefined';
 
 let store = null;
@@ -71,7 +73,7 @@ async function start() {
       const onProgress = (f) => post({ type: 'progress', pack: p, pct: Math.floor(f * 100) });
       post({ type: 'progress', pack: p, pct: 0 });
       if (p === SENT) await store.loadSent(onProgress);
-      else { await store.loadPack(p, onProgress); store.warm(p); }
+      else { await store.loadPack(p, onProgress); await store.warmAsync(p, pause); } // SPEC 34.14: searches run between slices
       loaded[p] = true;
       post({ type: 'loaded', pack: p });
       flushEntries();
@@ -155,12 +157,17 @@ async function startDownload() {
 // ---------- messages ----------
 
 function resolveGroups(res) {
-  for (const g of res.groups) for (const h of g.results) h.rec = store.getRecord(h.pack, h.id);
+  for (const g of res.groups) {
+    for (const h of g.results) {
+      h.rec = store.getRecord(h.pack, h.id);
+      if (h.pack !== 'kanji') { const n = addressOrdinal(store, h.pack, h.id); if (n > 0) h.n = n; } // SPEC 34.12
+    }
+  }
   return res;
 }
 
 function runSearch(m, phase) {
-  const opts = { ranking: m.ranking, limit: m.limit || 50, groupLimits: m.groupLimits || {}, recent: m.recent || [], phase, keepBrackets: !!m.keepBrackets };
+  const opts = { ranking: m.ranking, limit: m.limit || 50, groupLimits: m.groupLimits || {}, recent: m.recent || [], phase, keepBrackets: !!m.keepBrackets, textAll: !!m.textAll };
   const res = resolveGroups(search(store, m.query, opts));
   post({ type: 'result', seq: m.seq, phase, query: m.query, result: res, loaded: { ...loaded } });
 }
@@ -173,7 +180,7 @@ function ensurePitch() {
 }
 async function answerEntry(m) {
   await ensurePitch();
-  const id = findEntry(store, m.pack, m.w, m.r);
+  const id = findEntry(store, m.pack, m.w, m.r, m.n || 0);
   // sentences: still loading only while the sentence pack is listed and neither loaded nor failed
   const sentLoading = !!inUse[SENT] && !loaded[SENT] && !failed[SENT];
   const data = id < 0 ? null : entryData(store, m.pack, id, { ranking: m.ranking, sentLoading });
@@ -194,9 +201,14 @@ self.onmessage = (ev) => {
   if (m.type === 'search') {
     latestSeq = m.seq;
     if (!store || !loaded.words) { post({ type: 'result', seq: m.seq, phase: 'full', query: m.query, result: null, loaded: { ...loaded } }); return; }
-    if (m.phase !== 'full') runSearch(m, 'fast');
-    // a newer query cancels older work: the full phase runs only if nothing newer arrived meanwhile
-    setTimeout(() => { if (m.seq === latestSeq) runSearch(m, 'full'); }, 0);
+    // SPEC 34.14: a newer query cancels older work. The search starts one macrotask later, so search messages already
+    // queued behind this one are read first and only the newest runs (no fast search per superseded keystroke); the
+    // full phase runs only if nothing newer arrived meanwhile.
+    setTimeout(() => {
+      if (m.seq !== latestSeq) return;
+      if (m.phase !== 'full') runSearch(m, 'fast');
+      setTimeout(() => { if (m.seq === latestSeq) runSearch(m, 'full'); }, 0);
+    }, 0);
   } else if (m.type === 'settings') {
     if (m.updates) settings.updates = m.updates;
     settings.connectionType = m.connectionType || undefined;

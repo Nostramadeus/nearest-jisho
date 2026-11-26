@@ -44,12 +44,29 @@ function fictionRank(jiten, words, readingsHira, kanaRowsOk, fn, allPairs) {
 
 export const MISC_COUNT_TAGS = ['sl', 'net-sl', 'm-sl', 'vulg', 'col', 'on-mim'];
 
+/**
+ * SPEC 34.17: JMdict <re_restr> as { reading: [written forms] } for the shown readings (`shownR`) whose
+ * appliesToKanji is a list (not "*"), keeping only shown written forms (`shownK`); null when no reading is restricted.
+ * kana = jmdict-simplified kana objects ({ text, appliesToKanji }).
+ */
+export function restrictedReadings(kana, shownR, shownK) {
+  let out = null;
+  for (const x of kana || []) {
+    const ak = x.appliesToKanji || ['*'];
+    if (ak.includes('*') || !shownR.includes(x.text)) continue;
+    const ks = ak.filter((f) => shownK.includes(f));
+    if (!ks.length) continue;
+    (out ||= {})[x.text] = ks;
+  }
+  return out;
+}
+
 export async function buildWords({ release, romaji, jiten, jlpt, priority }) {
   const file = await download(release.url('jmdict-examples-eng'), 'jmdict-examples-eng.json.tgz');
   const w = new PackWriter(OUT, 'words', ['r', 'k', 'e']);
   const miscCount = Object.fromEntries(MISC_COUNT_TAGS.map((t) => [t, 0]));
   let header = null, examples = 0, withFf = 0, withFn = 0, withJ = 0, hiddenForms = 0;
-  let withRp = 0;
+  let withRp = 0, withRr = 0;
   const searchOnly = (x) => (x.tags || []).some((t) => t === 'sK' || t === 'sk');
   const forRank = []; // per record: [forms, hiragana readings, kanaRowsOk, fn]; ff is computed after all pairs are known
   const allPairs = new Set();
@@ -68,6 +85,9 @@ export async function buildWords({ release, romaji, jiten, jlpt, priority }) {
     if (k.length) rec.k = k;
     if (r.length) rec.r = r;
     if (hid.length) { rec.h = hid; hiddenForms += hid.length; }
+    // SPEC 34.17: JMdict <re_restr>: a shown reading that goes only with some written forms -> rec.rr[reading] = those
+    const rr = restrictedReadings(e.kana, r, k);
+    if (rr) { rec.rr = rr; withRr++; }
     if (e.kanji.some((x) => x.common) || e.kana.some((x) => x.common)) rec.c = 1;
     const seq = Number(e.id);
     // SPEC 27.2: indexes of the shown kana forms that carry a JMdict reading priority tag (re_pri)
@@ -127,7 +147,7 @@ export async function buildWords({ release, romaji, jiten, jlpt, priority }) {
   });
   const res = w.finish();
   rmCache(file);
-  log(`words: ${res.n} records, ${mb(res.bytes)} (${res.layout}); examples ${examples}; fn known ${withFn}; ff known ${withFf}; jlpt ${withJ}; search-only forms hidden ${hiddenForms}; readings with re_pri in ${withRp} records`);
+  log(`words: ${res.n} records, ${mb(res.bytes)} (${res.layout}); examples ${examples}; fn known ${withFn}; ff known ${withFf}; jlpt ${withJ}; search-only forms hidden ${hiddenForms}; readings with re_pri in ${withRp} records; restricted readings (re_restr) in ${withRr} records`);
   return { ...res, dictDate: header?.dictDate, miscCount, examples, withFn, withFf, withJ };
 }
 
@@ -302,8 +322,51 @@ export function jmdictForms() {
   throw new Error('wikt needs the words pack (build words first)');
 }
 
-export async function buildWikt({ romaji, jiten }) {
+/**
+ * SPEC 34.8: every (written form, reading) pair of the words pack, read back from words.dat / words.off:
+ * Set of "<NFKC form>\t<hiragana reading>" over k, r and the hidden forms h; kana forms of r and h are the readings.
+ */
+export function jmdictPairs(toHiragana, dir = OUT) {
+  const dat = fs.readFileSync(path.join(dir, 'words.dat'));
+  const offBuf = fs.readFileSync(path.join(dir, 'words.off'));
+  const off = new Uint32Array(offBuf.buffer, offBuf.byteOffset, offBuf.byteLength / 4);
+  const td = new TextDecoder();
+  const pairs = new Set();
+  for (let i = 0; i + 1 < off.length; i++) {
+    const rec = JSON.parse(td.decode(dat.subarray(off[i], off[i + 1])));
+    const all = [...(rec.k || []), ...(rec.r || []), ...(rec.h || [])];
+    const readings = all.filter(isKanaStr).map((x) => toHiragana(nfkc(x)));
+    for (const f of all) for (const r of readings) pairs.add(nfkc(f) + '\t' + r);
+  }
+  return pairs;
+}
+
+/** SPEC 34.8: Japanese Wiktionary labels kept with the wide rule: dialect and colloquial words. */
+export const JA_WIDE_LABEL_RE = /方言|口語/;
+
+/**
+ * SPEC 2.1 / 34.8: is a Wiktionary entry kept? `slang`: it has a slang-type label; `labelled`: (ja) a 方言 / 口語 label.
+ * Old rule (wide = false): English entries are kept when slang or "missing" (neither the headword nor any of its
+ * readings is a JMdict form); Japanese entries only when slang.
+ * Wide rule (SPEC 34.8, build flag --wikt-wide): kept when slang, labelled, or when JMdict has no record with the same
+ * written form AND the same reading (an entry without readings: the same written form). A homophone alone no longer
+ * drops a word (魔導師 is kept although JMdict has まどうし for 魔道士).
+ */
+export function wiktKeep({ src, hw, readings, slang, labelled }, { forms, pairs, toHiragana }, wide) {
+  if (slang) return true;
+  if (!wide) return src === 'we' && !forms.has(nfkc(hw)) && !readings.some((x) => forms.has(nfkc(x)));
+  if (labelled) return true;
+  if (!readings.length) return !forms.has(nfkc(hw));
+  return !readings.some((x) => pairs.has(nfkc(hw) + '\t' + toHiragana(nfkc(x))));
+}
+
+export async function buildWikt({ romaji, jiten, wide = false }) {
   const forms = jmdictForms();
+  // SPEC 34.8: the wide rule needs the JMdict form + reading pairs; they are also read when the flag is off, so the
+  // build log reports how many records the wide rule would add
+  const pairs = jmdictPairs(romaji.toHiragana);
+  const keepCtx = { forms, pairs, toHiragana: romaji.toHiragana };
+  const wideExtra = { we: 0, wj: 0 };
   const recs = []; // [record, rank, keys]
   const stats = { we: { lines: 0, kept: 0, bySlang: 0, byMissing: 0, available: false }, wj: { lines: 0, kept: 0, available: false } };
   const rankOf = (hw) => (jiten && jiten.word.has(hw) ? jiten.word.get(hw) : UNKNOWN);
@@ -321,8 +384,11 @@ export async function buildWikt({ romaji, jiten }) {
       const slang = senses.some((s) => senseLabels(s).some((t) => EN_LABEL_RE.test(t))) || entryCats.some((t) => EN_LABEL_RE.test(t));
       const hw = nfkc(e.word);
       const readings = enReadings(e);
-      const missing = !forms.has(hw) && !readings.some((x) => forms.has(nfkc(x)));
-      if (!slang && !missing) return;
+      const entry = { src: 'we', hw, readings, slang, labelled: false };
+      const keepOld = wiktKeep(entry, keepCtx, false);
+      const keepWide = wiktKeep(entry, keepCtx, true);
+      if (keepWide && !keepOld) wideExtra.we++;
+      if (!(wide ? keepWide : keepOld)) return;
       const kept = [];
       for (const s of senses) {
         const tags = s.tags || [];
@@ -369,7 +435,16 @@ export async function buildWikt({ romaji, jiten }) {
       const entryCats = catNames(e.categories);
       const senses = e.senses || [];
       const slang = senses.some((s) => senseLabels(s).some((t) => JA_LABEL_RE.test(t))) || entryCats.some((t) => JA_LABEL_RE.test(t));
-      if (!slang) return;
+      // SPEC 34.8: dialect / colloquial label of the entry or a sense (kept with the wide rule, shown as a tag)
+      const wideLabel = (labels) => { for (const t of labels) { const m = JA_WIDE_LABEL_RE.exec(t); if (m) return m[0]; } return null; };
+      const entryLabel = wideLabel(entryCats);
+      const labelled = !!entryLabel || senses.some((s) => wideLabel(senseLabels(s)));
+      const readings = jaReadings(e);
+      const entry = { src: 'wj', hw: nfkc(e.word), readings, slang, labelled };
+      const keepOld = wiktKeep(entry, keepCtx, false);
+      const keepWide = wiktKeep(entry, keepCtx, true);
+      if (keepWide && !keepOld) wideExtra.wj++;
+      if (!(wide ? keepWide : keepOld)) return;
       const kept = [];
       for (const s of senses) {
         const g = (s.glosses || []).filter(Boolean);
@@ -378,11 +453,12 @@ export async function buildWikt({ romaji, jiten }) {
         if (e.pos) o.p = [e.pos];
         o.g = g;
         const m = displayLabels(s);
+        const tag = wide && !slang ? (wideLabel(senseLabels(s)) || entryLabel) : null;
+        if (tag && !m.some((x) => x.includes(tag))) m.push(tag); // the label shows as a tag on the card
         if (m.length) o.m = m;
         kept.push(o);
       }
       if (!kept.length) return;
-      const readings = jaReadings(e);
       const rec = { src: 'wj', k: [e.word] };
       if (readings.length) rec.r = readings;
       rec.u = `https://ja.wiktionary.org/wiki/${urlPart(e.word)}`;
@@ -404,5 +480,9 @@ export async function buildWikt({ romaji, jiten }) {
   for (const [rec, rank, keys] of recs) w.add(rec, rank, rank, keys);
   const res = w.finish();
   log(`wikt: ${res.n} records (we ${stats.we.kept}: slang ${stats.we.bySlang}, not in JMdict ${stats.we.byMissing}; wj ${stats.wj.kept}), ${mb(res.bytes)} (${res.layout})`);
+  // SPEC 34.8: size estimate of the wide rule (records it keeps that the old rule drops)
+  const extra = wideExtra.we + wideExtra.wj;
+  log(`wikt wide rule (--wikt-wide, ${wide ? 'ON' : 'off'}): ${wide ? 'added' : 'would add'} ${extra} records (we ${wideExtra.we}, wj ${wideExtra.wj}) = ${res.n ? Math.round((extra / (wide ? res.n - extra : res.n)) * 100) : 0}% of the ${wide ? 'old' : 'current'} pack`);
+  stats.wide = { on: wide, ...wideExtra };
   return { ...res, wiktStats: stats };
 }

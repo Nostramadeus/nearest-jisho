@@ -18,16 +18,18 @@ const ALL = ['words', 'names', 'kanji', 'wikt', 'sent', 'pitch']; // pitch reads
 
 function parseArgs(argv) {
   let only = ALL;
+  let wiktWide = false; // SPEC 34.8: --wikt-wide keeps the wider Wiktionary rule (off by default)
   if (argv.length === 1 && argv[0] === '--rehash') return { only: [], rehash: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--only') only = argv[++i].split(',');
+    if (a === '--wikt-wide') wiktWide = true;
+    else if (a === '--only') only = argv[++i].split(',');
     else if (a.startsWith('--only=')) only = a.slice(7).split(',');
     else throw new Error(`unknown argument ${a}`);
   }
   only = only.map((s) => s.trim()).filter(Boolean);
   for (const p of only) if (!ALL.includes(p)) throw new Error(`unknown pack ${p} (use ${ALL.join(',')})`);
-  return { only };
+  return { only, wiktWide };
 }
 
 function readVersion() {
@@ -52,7 +54,7 @@ function writeHashes() {
 }
 
 async function main() {
-  const { only, rehash } = parseArgs(process.argv.slice(2));
+  const { only, rehash, wiktWide } = parseArgs(process.argv.slice(2));
   if (rehash) { writeHashes(); return; } // node build/build-data.mjs --rehash: hashes for the data already in app/data
   const t0 = Date.now();
   // The canonical romaji used for space r is the app's own (app/search/romaji.js), so build and search agree.
@@ -85,7 +87,7 @@ async function main() {
     report.packs.kanji = r;
   }
   if (only.includes('wikt')) {
-    const r = await buildWikt({ romaji, jiten });
+    const r = await buildWikt({ romaji, jiten, wide: wiktWide });
     writeVersion(release, { wikt: { n: r.n, bytes: r.bytes } });
     report.packs.wikt = r;
   }

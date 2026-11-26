@@ -168,8 +168,9 @@ test('32.7 a leading particle kana after a kanji word is not part of a partly-ka
   const ws = words('尻も掻いて');
   assert.deepEqual(ws.map((x) => x.text), ['尻', 'も', '掻いて']);
   assert.equal(head(ws[2]), '掻く');
-  // alone, も掻いて is still 藻掻く typed partly in kana (SPEC 30)
-  assert.equal(head(words('も掻いて')[0]), '藻掻く');
+  // alone, a search for も掻いて still lists 藻掻く first, typed partly in kana (SPEC 30). Since SPEC 34.3 the
+  // splitter adds +4 for the te-form of a partly-kana word, so its own split of も掻いて is も / 掻いて.
+  assert.equal(head(first(full('も掻いて'))), '藻掻く');
 });
 
 test('32.8 masu-stem endings after a derived stem: しょぼつかせながら', () => {

@@ -1,5 +1,5 @@
 // UI (SPEC 5, 10, 11, 12). Talks to worker.js; renders Look A cards, the entry page and the Favorites view.
-import { esc, groupsHtml, entryHtml, favoritesHtml, updateBarHtml, suggestionBarHtml, scrollTargetY } from './render.js';
+import { esc, groupsHtml, groupCardsHtml, textGroupHtml, entryHtml, favoritesHtml, updateBarHtml, suggestionBarHtml, scrollTargetY } from './render.js';
 import { createFavorites, favoritesText, addMissedTo, missedText, MISSED_KEY } from './favorites.js';
 import {
   WIFI_UNKNOWN_NOTE, wifiNoteShown, loadUpdateChoice, shouldShowOffer, checkResultText, UPDATE_DONE_TEXT, UPDATE_FAILED_TEXT,
@@ -15,10 +15,10 @@ const favViewEl = $('favview'), favBtnEl = $('favbtn');
 // ---------- favorites (SPEC 11) ----------
 const fav = createFavorites(() => localStorage);
 if (!fav.available) document.documentElement.classList.add('no-fav'); // storage unavailable: no stars
-const favKey = (f) => `${f.w}\t${f.r}\t${f.p}`;
+const favKey = (f) => `${f.w}\t${f.r}\t${f.p}${f.n > 0 ? `\t${f.n}` : ''}`; // SPEC 34.12: n
 function renderOpts() {
   const set = new Set(fav.list().map(favKey));
-  return { fav: (w, r, p) => set.has(favKey({ w, r, p })) };
+  return { fav: (w, r, p, n = 0) => set.has(favKey({ w, r, p, n })) };
 }
 
 const store = {
@@ -109,6 +109,7 @@ function runSearch(phase) {
   worker.postMessage({
     type: 'search', seq: S.seq, query: S.query, ranking: S.ranking, limit: DEFAULT_LIMIT,
     groupLimits: { names: NAMES_FIRST, ...S.groupLimits }, recent: S.recent, phase, keepBrackets: !S.ignoreBrackets,
+    textAll: !!S.textAll, // SPEC 34.13
   });
 }
 
@@ -117,6 +118,7 @@ function applyQuery(q, focus) {
   S.query = q;
   if (qEl.value !== q) qEl.value = q;
   S.groupLimits = {};
+  S.textAll = false; S.textMore = false; // SPEC 34.13: a new query lists its first 60 words
   clearTimeout(settleT);
   clearTimeout(recentT);
   if (focus) qEl.focus();
@@ -133,8 +135,18 @@ function emptyAddress() { return location.pathname + location.search; }
  * query, an entry page, Favorites / Settings, links inside the list, the entry page or Favorites.
  */
 function pushStep(url, state = null) {
-  history.replaceState({ ...(history.state || {}), scroll: window.scrollY }, '', location.href);
-  history.pushState(state, '', url);
+  const i = stepIndex();
+  history.replaceState({ ...(history.state || {}), scroll: window.scrollY, i }, '', location.href);
+  history.pushState({ ...(state || {}), i: i + 1 }, '', url); // SPEC 34.19: the page counts its own steps
+}
+/** SPEC 34.19: index of the current history entry among the page's own steps (0 = the first one). */
+function stepIndex() {
+  const st = history.state;
+  return st && typeof st.i === 'number' ? st.i : 0;
+}
+/** history.replaceState that keeps the step index of the entry it replaces (SPEC 34.19). */
+function replaceStep(state, url) {
+  history.replaceState({ ...(state || {}), i: stepIndex() }, '', url);
 }
 /** Scroll position stored in the current history entry (SPEC 32.10, 33), or null. */
 function storedScroll(ev) {
@@ -150,7 +162,7 @@ function writeQuery(prev, forcePush) {
     below = S.view === 'search' && forcePush !== 'view' ? prev : null;
     twin = false;
   } else {
-    history.replaceState(null, '', url);
+    replaceStep(null, url);
     twin = below !== null && S.query === below;
   }
   settled = false;
@@ -259,14 +271,14 @@ function showEntry(addr) {
   entryEl.innerHTML = '<p class="empty">Loading the entry.</p>';
   window.scrollTo(0, 0);
   S.entryReq++;
-  worker.postMessage({ type: 'entry', id: S.entryReq, pack: addr.p, w: addr.w, r: addr.r, ranking: S.ranking });
+  worker.postMessage({ type: 'entry', id: S.entryReq, pack: addr.p, w: addr.w, r: addr.r, n: addr.n || 0, ranking: S.ranking });
 }
 
 /** Ask again for the open entry (same page, same scroll position), e.g. when the sentence pack arrives. */
 function refreshEntry() {
   S.entryReq++;
   const a = S.entry;
-  worker.postMessage({ type: 'entry', id: S.entryReq, pack: a.p, w: a.w, r: a.r, ranking: S.ranking });
+  worker.postMessage({ type: 'entry', id: S.entryReq, pack: a.p, w: a.w, r: a.r, n: a.n || 0, ranking: S.ranking });
 }
 
 function onEntry(m) {
@@ -284,7 +296,7 @@ function showSearchView() {
   renderWiki();
   // stars may have changed on the entry page or in Favorites: refresh the list's star states in place
   const o = renderOpts();
-  for (const b of resultsEl.querySelectorAll('.star')) b.setAttribute('aria-pressed', String(o.fav(b.dataset.w, b.dataset.r, b.dataset.p)));
+  for (const b of resultsEl.querySelectorAll('.star')) b.setAttribute('aria-pressed', String(o.fav(b.dataset.w, b.dataset.r, b.dataset.p, Number(b.dataset.n) || 0)));
 }
 
 // ---------- Favorites and Settings views (SPEC 11, 16.1) ----------
@@ -297,7 +309,7 @@ function togglePanel(v) {
   if (S.view === v) { closePanel(); return; }
   settled = true; below = null; twin = false;
   if (PANELS.includes(S.view)) {
-    history.replaceState({ view: v }, '', `#${v}`);
+    replaceStep({ view: v }, `#${v}`);
     SHOW[v]();
     return;
   }
@@ -309,7 +321,7 @@ function closePanel() {
   if (S.panelPushed) { history.back(); return; } // reached by a push: Back restores the previous view and scroll
   // reached by a direct visit: there is nothing to go back to, show the search view
   showSearchView();
-  history.replaceState(null, '', S.query ? `#q=${encodeURIComponent(S.query)}` : emptyAddress());
+  replaceStep(null, S.query ? `#q=${encodeURIComponent(S.query)}` : emptyAddress());
   settled = true; below = null; twin = false;
   if (!S.query.trim()) renderEmpty();
 }
@@ -336,12 +348,13 @@ favBtnEl.addEventListener('click', openFavorites);
 
 function onStar(btn) {
   const item = { w: btn.dataset.w, r: btn.dataset.r, p: btn.dataset.p, g: btn.dataset.g, h: btn.dataset.h };
+  if (Number(btn.dataset.n) > 0) item.n = Number(btn.dataset.n); // SPEC 34.12
   const key = favKey(item);
   if (S.view === 'fav') {
     const li = btn.closest('li');
     const t = li ? Number(li.dataset.t) || undefined : undefined;
     if (S.favRemoved.has(key)) { fav.add({ ...item, t }); S.favRemoved.delete(key); } // undo: back at its old place
-    else { fav.remove(item.w, item.r, item.p); S.favRemoved.set(key, { ...item, t }); }
+    else { fav.remove(item.w, item.r, item.p, item.n || 0); S.favRemoved.set(key, { ...item, t }); }
     renderFavorites();
     return;
   }
@@ -437,7 +450,7 @@ recentEl.addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
   if (b.dataset.act === 'clear-recent') { S.recent = []; store.set('nj-recent', []); renderRecent(); return; }
-  if (b.dataset.recent !== undefined) setQuery(b.dataset.recent, { push: true, focus: true });
+  if (b.dataset.recent !== undefined) setQuery(b.dataset.recent, { push: true }); // SPEC 34.18: no focus, no keyboard
 });
 
 // ---------- settings ----------
@@ -731,11 +744,36 @@ function onResult(m) {
     const still = !m.loaded.names || !m.loaded.wikt;
     resultsEl.innerHTML = m.phase === 'fast' ? resultsEl.innerHTML
       : `<p class="empty">No results for "${esc(S.query)}".${still ? ' Some dictionaries are still loading.' : ''}</p>`;
-  } else {
+  } else if (!appendMore(r, m.phase)) {
     resultsEl.innerHTML = groupsHtml(r.groups, renderOpts());
   }
   renderWiki();
   placeList(m.phase);
+}
+
+/**
+ * SPEC 34.18: the answer to "Show more" adds the new cards of that group below the ones on the page (no re-render, so
+ * an opened "More examples" stays open). SPEC 34.13: the answer to "Show more words" replaces only the text group.
+ * Returns false when the page has no such group (then the caller renders the whole list).
+ */
+function appendMore(r, phase) {
+  if (phase !== 'full' || S.query !== S.shownQuery) return false;
+  if (S.textMore) {
+    S.textMore = false;
+    const gi = r.groups.findIndex((g) => g.id === 'text');
+    const sec = gi >= 0 && resultsEl.querySelector('section[data-group="text"]');
+    if (!sec) return false;
+    sec.outerHTML = textGroupHtml(r.groups[gi], gi, renderOpts());
+    return true;
+  }
+  if (!S.moreAt) return false;
+  const gi = r.groups.findIndex((g) => g.id === S.moreAt.id);
+  const sec = gi >= 0 && resultsEl.querySelector(`section[data-group="${S.moreAt.id}"]`);
+  if (!sec) return false;
+  const btn = sec.querySelector('button[data-more]');
+  if (btn) btn.remove();
+  sec.insertAdjacentHTML('beforeend', groupCardsHtml(r.groups[gi], gi, S.moreAt.n, renderOpts()));
+  return true;
 }
 
 /**
@@ -806,10 +844,16 @@ function renderEmpty() {
 
 dymEl.addEventListener('click', (e) => {
   const b = e.target.closest('button[data-q]');
-  if (b) setQuery(b.dataset.q, { push: true, focus: true }); // one history step: Back returns to the typed query
+  if (b) setQuery(b.dataset.q, { push: true }); // one history step: Back returns to the typed query; SPEC 34.18: no focus
 });
 
 resultsEl.addEventListener('click', (e) => {
+  const textMore = e.target.closest('button[data-textmore]');
+  if (textMore) { // SPEC 34.13: every word of the pasted text
+    S.textAll = true; S.textMore = true;
+    runSearch('full');
+    return;
+  }
   const more = e.target.closest('button[data-more]');
   if (more) {
     const id = more.dataset.more;
@@ -898,15 +942,18 @@ if (document.readyState === 'complete') showShellInfo(); else window.addEventLis
 // the app before the start screen.
 if (location.hash && history.length === 1) {
   const h = location.hash;
-  history.replaceState(null, '', emptyAddress());
-  history.pushState(null, '', h);
+  history.replaceState({ i: 0 }, '', emptyAddress());
+  history.pushState({ i: 1 }, '', h);
 }
 // SPEC 33: Android app (Capacitor): the back gesture goes one history step back; it leaves the app only from the empty
 // start screen. Needs the @capacitor/app plugin (packaging/android/package.json); without it the gesture closes the app.
-function nativeBack(canGoBack, exitApp) {
-  if (canGoBack) { history.back(); return; }
+// SPEC 34.19: whether there is a step to go back to comes from the page's own step index (history.state.i), never
+// from the WebView's canGoBack(): Chromium skips entries pushed without a user gesture there, so canGoBack() can be
+// false (and the app would close) while the page still has steps.
+function nativeBack(exitApp) {
+  if (stepIndex() > 0) { history.back(); return; }
   if (S.view !== 'search' || S.query.trim()) { // the first step is not the start screen: show it
-    history.replaceState(null, '', emptyAddress());
+    replaceStep(null, emptyAddress());
     route();
     return;
   }
@@ -916,7 +963,7 @@ function nativeBack(canGoBack, exitApp) {
   const C = window.Capacitor;
   const App = C && C.Plugins && C.Plugins.App;
   if (App && typeof App.addListener === 'function') {
-    App.addListener('backButton', (ev) => nativeBack(!!(ev && ev.canGoBack), () => { Promise.resolve(App.exitApp()).catch(() => {}); }));
+    App.addListener('backButton', () => nativeBack(() => { Promise.resolve(App.exitApp()).catch(() => {}); }));
   }
 }
 const initialEntry = parseEntryHash(location.hash);

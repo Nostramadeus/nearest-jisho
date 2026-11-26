@@ -90,13 +90,13 @@ export async function makePage(store, hash = '', { win = {} } = {}) {
       posted.push(m);
       setTimeout(() => {
         if (m.type === 'search') {
-          for (const phase of ['fast', 'full']) {
+          for (const phase of m.phase === 'full' ? ['full'] : ['fast', 'full']) { // like the worker: a 'full' request runs only the full phase
             const r = search(store, m.query, { ...m, phase });
             for (const g of r.groups) for (const h of g.results) h.rec = store.getRecord(h.pack, h.id);
             this.onmessage({ data: { type: 'result', seq: m.seq, phase, query: m.query, result: r, loaded: { words: true, names: true, wikt: true } } });
           }
         } else if (m.type === 'entry') {
-          const id = findEntry(store, m.pack, m.w, m.r);
+          const id = findEntry(store, m.pack, m.w, m.r, m.n || 0);
           this.onmessage({ data: { type: 'entry', id: m.id, data: id < 0 ? null : entryData(store, m.pack, id) } });
         }
       }, 0);

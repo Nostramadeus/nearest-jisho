@@ -1,7 +1,7 @@
 // Words in a pasted text (SPEC 17.2 / 17.3). Pure module: runs in the worker and in node.
 // Lowest-total-weight split (SPEC 19.1): common words win over rare ones; it can still be wrong (stated in the note).
 import { toHiragana, isKana } from './romaji.js';
-import { deinflect, posBits, isStemLabel } from './deinflect.js';
+import { deinflect, posBits, isStemLabel, T } from './deinflect.js';
 import { pRank } from './cost.js';
 import { mixedSpans } from './mixed.js';
 
@@ -30,33 +30,94 @@ function exact(store, pack, form) {
   return i < 0 ? [] : Array.from(ks.idsOf(i));
 }
 
-/** Rule 1-3 and 5 candidates for substring s: [{ pack, id, rule, via?, base? }] of the first rule that matches. */
-function rulesOneToThree(store, s, mixed, at) {
+const KATA_RE = /[ァ-ヺ]/;
+const HIRA_RE = /[ぁ-ゖ]/;
+/**
+ * SPEC 34.7: the strings deinflection is tried on. Kana: its hiragana form, and as typed when it mixes katakana and
+ * hiragana (バグってる -> バグる: the pack has the katakana key only). Kanji + katakana okurigana (喰ッタ): also with
+ * the katakana turned into hiragana.
+ */
+export function deinflectInputs(s) {
+  const kana = allKana(s);
+  const out = [kana ? toHiragana(s) : s];
+  if (KATA_RE.test(s) && (!kana || HIRA_RE.test(s))) {
+    const v = kana ? s : toHiragana(s);
+    if (!out.includes(v)) { if (kana) out.unshift(v); else out.push(v); } // as typed first: ググった -> ググる
+  }
+  return out;
+}
+/** Deinflected candidates of s, for every input of deinflectInputs, each (form, type) once. */
+export function deinflectAll(s) {
+  const out = [], seen = new Set();
+  for (const w of deinflectInputs(s)) {
+    for (const c of deinflect(w)) {
+      const k = c.form + '|' + c.type;
+      if (!seen.has(k)) { seen.add(k); out.push(c); }
+    }
+  }
+  return out;
+}
+const VERB_BITS = T.V1 | T.V5 | T.VK | T.VS | T.VZ | T.V5KS | T.V5ARU | T.V1S;
+/** SPEC 34.7: Wiktionary parts of speech (English or Japanese names) -> deinflection type bits. */
+export function wiktPosBits(p) {
+  const t = String(p);
+  if (/verb|動詞/i.test(t)) return VERB_BITS;
+  if (/形容動詞|adjectival noun/i.test(t)) return T.ADJNA;
+  if (/^adj|形容詞/i.test(t)) return T.ADJ;
+  return 0;
+}
+const posOk = (pack, rec, type) => (rec.s || []).some((sense) => (sense.p || []).some((p) => (pack === 'wikt' ? wiktPosBits(p) : posBits(p)) & type));
+const viaIsStem = (via) => String(via || '').split(' + ').some(isStemLabel);
+
+/** Deinflected candidates of s in the pack: a record with that form whose part of speech fits the rule chain. */
+function deinflectCands(store, pack, s, rule) {
+  const out = [];
+  const seen = new Set();
+  for (const cand of deinflectAll(s)) {
+    for (const id of exact(store, pack, cand.form)) {
+      if (seen.has(id)) continue;
+      if (!posOk(pack, store.getRecord(pack, id), cand.type)) continue;
+      seen.add(id);
+      const c = { pack, id, rule, via: cand.via.join(' + '), base: cand.form };
+      if (cand.suru) c.suru = true;
+      out.push(c);
+    }
+  }
+  return out;
+}
+
+/** Rule 1-3 and 5 candidates for substring s: [{ pack, id, rule, via?, base?, ord? }] of the first rule that matches. */
+function rulesOneToThree(store, s, mixed, at, ranking = 'fiction') {
   // 1. written form in words, or for kana its hiragana form as a kana form
   const c1 = new Set(exact(store, 'words', s));
   if (allKana(s)) {
     const h = toHiragana(s);
     if (h !== s) for (const id of exact(store, 'words', h)) if ((store.getRecord('words', id).r || []).includes(h)) c1.add(id);
   }
-  if (c1.size) return Array.from(c1, (id) => ({ pack: 'words', id, rule: 1 }));
   // 2. deinflection to a verified words record
-  const c2 = [];
-  const seen = new Set();
-  const forms = deinflect(allKana(s) ? toHiragana(s) : s);
-  for (const cand of forms) {
-    for (const id of exact(store, 'words', cand.form)) {
-      if (seen.has(id)) continue;
-      const rec = store.getRecord('words', id);
-      const ok = (rec.s || []).some((sense) => (sense.p || []).some((p) => posBits(p) & cand.type));
-      if (!ok) continue;
-      seen.add(id);
-      c2.push({ pack: 'words', id, rule: 2, via: cand.via.join(' + '), base: cand.form });
-    }
+  const c2 = deinflectCands(store, 'words', s, 2);
+  if (c1.size) {
+    const one = Array.from(c1, (id) => ({ pack: 'words', id, rule: 1 }));
+    // SPEC 34.1: a deinflected word whose frequency band P is lower than that of every true match wins the segment
+    // (しろ: する before 白; いた: いる before 板; 来た: 来る before the interjection 来た). The true matches stay as
+    // "other entries". A stem suffix (SPEC 32.6) never wins this way: an own entry stays first.
+    const P = (c) => pRank(store.rank(c.pack, c.id, ranking));
+    const best1 = Math.min(...one.map(P));
+    const win = c2.filter((c) => !viaIsStem(c.via) && P(c) < best1);
+    if (!win.length) return one;
+    // among the winners a common word first (the common-first rule of SPEC 21.1): くれ = 呉れる (common), not 抉る (くる)
+    for (const c of win) c.ord = store.isCommon(c.pack, c.id) ? 0 : 0.5;
+    for (const c of one) c.ord = 1;
+    const rest = c2.filter((c) => !win.includes(c));
+    for (const c of rest) c.ord = 2;
+    return [...win, ...one, ...rest];
   }
   if (c2.length) return c2;
-  // 3. written form in the Wiktionary pack
+  // 3. written form in the Wiktionary pack; then deinflected to a Wiktionary record (SPEC 34.7)
   const c3 = store.has('wikt') ? exact(store, 'wikt', s) : [];
   if (c3.length) return c3.map((id) => ({ pack: 'wikt', id, rule: 3 }));
+  const c3d = store.has('wikt') ? deinflectCands(store, 'wikt', s, 3) : [];
+  if (c3d.length) return c3d;
   // 5. a word with part typed in kana (SPEC 30), found for the whole run by mixedSpans(). base = its written form
   const hits = mixed ? mixed.get(at) : null;
   if (!hits) return [];
@@ -72,7 +133,8 @@ function oneKanaFilter(store, s, cands) {
 
 /** 17.3: true written-form match before a deinflected one, then rank, then record id. */
 function choose(store, cands, ranking) {
-  const key = (c) => [c.via ? (String(c.via).split(' + ').some(isStemLabel) ? 2 : 1) : 0, // SPEC 32.6: an own entry (寒がる) before base + stem suffix (寒い)
+  // SPEC 34.1: ord (set by rulesOneToThree when a deinflected word outranks the true matches) comes first
+  const key = (c) => [c.ord || 0, c.via ? (String(c.via).split(' + ').some(isStemLabel) ? 2 : 1) : 0, // SPEC 32.6: an own entry (寒がる) before base + stem suffix (寒い)
     store.rank(c.pack, c.id, ranking), c.pack === 'words' ? 0 : c.pack === 'wikt' ? 1 : 2, c.id];
   return cands.slice().sort((a, b) => {
     const x = key(a), y = key(b);
@@ -89,8 +151,8 @@ const EXTRA = { 1: 0, 2: 4, 3: 6, 4: 8, 5: 8 };
  * Candidate records of one edge: the first matching rule 1, 2, 3, 5 (one-kana rule applied), else 4 (names, L >= 2).
  * refuse5(cands): the rule-5 candidates to drop (SPEC 32.7); when none is left, rule 4 is tried.
  */
-function edgeCands(store, s, L, mixed, at, refuse5) {
-  let c = oneKanaFilter(store, s, rulesOneToThree(store, s, mixed, at));
+function edgeCands(store, s, L, mixed, at, refuse5, ranking) {
+  let c = oneKanaFilter(store, s, rulesOneToThree(store, s, mixed, at, ranking));
   if (c.length && c[0].rule === 5 && refuse5) c = refuse5(c);
   if (c.length) return c;
   if (L >= 2 && store.has('names')) return exact(store, 'names', s).map((id) => ({ pack: 'names', id, rule: 4 }));
@@ -140,10 +202,18 @@ export function segmentText(store, text, { ranking = 'fiction', wordLimit = Infi
   };
   let i = 0;
   while (i < chars.length) {
-    if (!isWordChar(chars[i])) { push('sep', chars[i]); i++; continue; }
-    let end = i;
+    // SPEC 34.15: digits directly before word characters start the run (2つ, 10分): the counter is read with them
+    let digits = 0;
+    if (isDigit(chars[i])) {
+      let d = i;
+      while (d < chars.length && isDigit(chars[d])) d++;
+      if (d < chars.length && isWordChar(chars[d])) digits = d - i;
+      else { push('sep', chars.slice(i, d).join('')); i = d; continue; }
+    }
+    if (!digits && !isWordChar(chars[i])) { push('sep', chars[i]); i++; continue; }
+    let end = i + digits;
     while (end < chars.length && isWordChar(chars[end])) end++;
-    const edges = runEdges(store, chars, i, end, ranking);
+    const edges = runEdges(store, chars, i, end, ranking, digits);
     const path = bestPath(edges, end - i);
     suffixAfterNoun(store, path);
     if (wordCount < wordLimit) {
@@ -153,7 +223,7 @@ export function segmentText(store, text, { ranking = 'fiction', wordLimit = Infi
       for (const a of altSplits(store, edges, path.slice(0, upto), i, margin)) alts.push(a);
     }
     for (const e of path) {
-      if (e.seg.kind === 'unknown') push('unknown', e.seg.text); else { segments.push(e.seg); wordCount++; }
+      if (e.seg.kind === 'unknown' || e.seg.kind === 'sep') push(e.seg.kind, e.seg.text); else { segments.push(e.seg); wordCount++; }
     }
     i = end;
   }
@@ -210,12 +280,43 @@ function suffixAfterNoun(store, path) {
   }
 }
 
-/** edges[k] = every edge { L, w, seg } that starts at chars[from + k] (the last one is the "unknown" edge). */
-function runEdges(store, chars, from, to, ranking) {
+/** SPEC 34.15: ASCII or full-width digit. */
+export const isDigit = (ch) => /^[0-9０-９]$/.test(ch);
+/** SPEC 34.6: a run-final glottal stop or lengthening mark (やめろっ, 待ってー) is a separator when no word takes it. */
+const TAIL_RE = /^[っッーｰ〜～]+$/;
+/** SPEC 34.15: the counter records of a counter text: a sense tagged ctr, best rank first. */
+function counterCands(store, s) {
+  return exact(store, 'words', s).filter((id) => (store.getRecord('words', id).s || []).some((x) => (x.p || []).includes('ctr')))
+    .map((id) => ({ pack: 'words', id, rule: 1 }));
+}
+export const COUNTER_MAX_LEN = 4;
+export const DIGITS_WEIGHT = 10;
+
+/**
+ * edges[k] = every edge { L, w, seg } that starts at chars[from + k] (the last one is the "unknown" edge).
+ * digits (SPEC 34.15): the run starts with that many digits. From its first character: an edge digits + counter for
+ * every counter of 1 to 4 characters right after them (weight 10 + P), and the digits alone as a separator (weight 10).
+ */
+function runEdges(store, chars, from, to, ranking, digits = 0) {
   const n = to - from;
   const edges = Array.from({ length: n }, () => []);
+  if (digits) {
+    const num = chars.slice(from, from + digits).join('');
+    for (let m = 1; m <= COUNTER_MAX_LEN && digits + m <= n; m++) {
+      const ctr = chars.slice(from + digits, from + digits + m).join('');
+      const cands = counterCands(store, ctr);
+      if (!cands.length) continue;
+      const sorted = choose(store, cands, ranking);
+      const best = sorted[0];
+      const w = 10 + pRank(store.rank(best.pack, best.id, ranking));
+      edges[0].push({ L: digits + m, w, seg: { kind: 'word', text: num + ctr, start: from, end: from + digits + m, pack: best.pack, id: best.id, rule: 1, others: sorted.length - 1, weight: w, counter: ctr } });
+    }
+    edges[0].push({ L: digits, w: DIGITS_WEIGHT, seg: { kind: 'sep', text: num } });
+    for (let k = 1; k < digits; k++) edges[k].push({ L: 1, w: UNKNOWN_WEIGHT, seg: { kind: 'unknown', text: chars[from + k] } });
+  }
   // SPEC 30: partly-kana words of the run, Map(start * 64 + length -> hits); positions count from the run's start
   const mixed = mixedSpans(store, 'words', from === 0 && to === chars.length ? chars : chars.slice(from, to));
+  // (digits are no kana or kanji, so mixedSpans never matches across them; positions still count from the run start)
   /**
    * SPEC 32.7 (mirror of 30.3): a rule-5 word whose kana part is one leading particle kana (も掻いて = 藻掻いて) is
    * refused when a kanji word ends right before it (尻) and the rest (掻いて) is a word by rule 1 to 3.
@@ -232,18 +333,23 @@ function runEdges(store, chars, from, to, ranking) {
     if (!oneKanaFilter(store, rest, rulesOneToThree(store, rest, null, 0)).length) return cands;
     return cands.filter((c) => isKana(Array.from(c.base || '')[0]?.codePointAt(0) || 0x3042)); // drop: the kana stands for a kanji
   };
-  for (let k = 0; k < n; k++) {
+  let tailAt = n;
+  while (tailAt > 0 && TAIL_RE.test(chars[from + tailAt - 1])) tailAt--;
+  for (let k = digits; k < n; k++) {
+    // SPEC 34.6: the run-final tail as a separator (weight 0)
+    if (k > digits && k === tailAt) edges[k].push({ L: n - k, w: 0, seg: { kind: 'sep', text: chars.slice(from + k, to).join('') } });
     const maxL = Math.min(SEGMENT_MAX_LEN, n - k);
     for (let L = 1; L <= maxL; L++) {
       const s = chars.slice(from + k, from + k + L).join('');
-      const cands = edgeCands(store, s, L, mixed.size ? mixed : null, k * 64 + L, refuseAt(k, s, L));
+      const cands = edgeCands(store, s, L, mixed.size ? mixed : null, k * 64 + L, refuseAt(k, s, L), ranking);
       if (!cands.length) continue;
       const sorted = choose(store, cands, ranking);
       const best = sorted[0];
       const oneKanaFn = L === 1 && allKana(s);
-      const w = oneKanaFn ? 10 : 10 + pRank(store.rank(best.pack, best.id, ranking)) + EXTRA[best.rule];
+      // SPEC 34.3: a partly-kana (rule 5) or Wiktionary (rule 3) word that is also deinflected adds the +4 of rule 2
+      const w = oneKanaFn ? 10 : 10 + pRank(store.rank(best.pack, best.id, ranking)) + EXTRA[best.rule] + ((best.rule === 5 || best.rule === 3) && best.via ? EXTRA[2] : 0);
       const seg = { kind: 'word', text: s, start: from + k, end: from + k + L, pack: best.pack, id: best.id, rule: best.rule, others: sorted.length - 1, weight: w };
-      if (best.via) { seg.via = best.via; seg.base = best.base; }
+      if (best.via) { seg.via = best.via; seg.base = best.base; if (best.suru) seg.suru = true; }
       if (best.rule === 5) { seg.base = best.base; seg.cands = sorted; } // SPEC 30: every record of this reading
       else if (L === 1 && sorted.length > 1 && hasKanji(s)) seg.cands = sorted; // SPEC 32.5: suffixAfterNoun
       edges[k].push({ L, w, seg });

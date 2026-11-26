@@ -38,6 +38,8 @@ test('worker: progress, loaded packs, fast then full result, entry', async () =>
     globalThis.onmessage({ data: { type: 'search', seq: 3, query: 'kaki', ranking: 'fiction', recent: [] } });
     await until((m) => m.type === 'result' && m.seq === 3 && m.phase === 'full');
     assert.ok(!msgs.some((m) => m.type === 'result' && m.seq === 2 && m.phase === 'full'));
+    // SPEC 34.14: a search already superseded when its turn comes runs not even its fast phase
+    assert.ok(!msgs.some((m) => m.type === 'result' && m.seq === 2));
 
     globalThis.onmessage({ data: { type: 'entry', id: 7, pack: 'words', w: '辞書', r: 'じしょ', ranking: 'fiction' } });
     const en = await until((m) => m.type === 'entry' && m.id === 7);

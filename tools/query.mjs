@@ -7,6 +7,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PackStore, PACKS, LOAD_ORDER, SENT } from '../app/search/packs.js';
 import { search, didYouMeanText } from '../app/search/engine.js';
+import { findEntry, addressOrdinal } from '../app/search/entry.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -133,8 +134,8 @@ const ACCEPT = [
   ['こん虫', 'fiction', (r) => r.groups[0].id === 'words' && head(firstResult(r)) === '昆虫' && firstResult(r).via === 'mixed', '昆虫 first for こん虫 (SPEC 30.2)'],
   ['首と肩', 'fiction', (r) => r.groups[0].id === 'text' && r.groups[0].segments.map((x) => x.text).join('/') === '首/と/肩', '首と stays 首 + と, not 首都 (SPEC 30.3)'],
   ['覆', 'fiction', (r) => groupOf(r, 'words').results.slice(0, 5).map(head).includes('覆す'), '覆す in the top 5 for the single kanji (SPEC 28.2)'],
-  ['覆さん', 'fiction', (r) => head(firstResult(r)) === '覆す' && firstResult(r).via === 'negative (-n)', '覆す first, as the negative (-n) form (SPEC 28.3)'],
-  ['kutsugaesan', 'fiction', (r) => head(firstResult(r)) === '覆す' && firstResult(r).via === 'negative (-n)', '覆す first, as the negative (-n) form (SPEC 28.3)'],
+  ['覆さん', 'fiction', (r) => head(firstResult(r)) === '覆す' && firstResult(r).via === "negative (-n) or literary volitional (-n, 'will / let us')", '覆す first, as the -n form (SPEC 28.3; label SPEC 34.10)'],
+  ['kutsugaesan', 'fiction', (r) => head(firstResult(r)) === '覆す' && firstResult(r).via === "negative (-n) or literary volitional (-n, 'will / let us')", '覆す first, as the -n form (SPEC 28.3; label SPEC 34.10)'],
   ['地団駄', 'fiction', (r) => groupOf(r, 'words').results.every((h) => { const rec = store.getRecord(h.pack, h.id); return !(rec.k || []).includes('地団駄をふむ') && (!(rec.k || []).includes('地団駄を踏む') || (rec.h || []).includes('地団駄をふむ')); }),
     'search-only form 地団駄をふむ is hidden (rec.h), 地団駄を踏む is the shown form (SPEC 24)'],
   ['地団駄', 'fiction', (r) => r.groups[0].id === 'wikt' && head(firstResult(r)) === '地団駄', '地団駄 (Wiktionary, exact) above 地団駄を踏む'],
@@ -287,7 +288,48 @@ const STUDY = [
   ['しょぼつかせながら', (r) => firstIs('しょぼつく')(r) && rowsOf(r)[0].via === 'causative + while (-nagara)', '32.8 kana: しょぼつく'],
   ['toranu tanuki', firstIs('捕らぬ狸の皮算用'), '32.9 捕らぬ狸の皮算用 1st'],
   ['とらぬたぬき', (r) => posOf(r, '捕らぬ狸の皮算用') === 0, '32.9 kana: 捕らぬ狸の皮算用 1st in Japanese words'],
+  // SPEC 34: outside audit R-001 (2026-11-26)
+  ['部屋にいた', (r) => splitIs(['部屋', 'に', 'いた'])(r) && textHead(r, 'いた') === '居る', '34.1 部屋 / に / いた (居る)'],
+  ['静かにしろ', (r) => textHead(r, 'しろ') === '為る' && textItem(r, 'しろ').via === 'imperative', '34.1 しろ = する (imperative), not 白'],
+  ['助けてくれ', (r) => splitIs(['助けて', 'くれ'])(r) && textHead(r, 'くれ') === '呉れる', '34.1 くれ = くれる (imperative), not 暮れ'],
+  ['車で来た', (r) => splitIs(['車', 'で', '来た'])(r) && textHead(r, '来た') === '来る', '34.1 / 34.3 車 / で / 来た (来る), not 来 = らい'],
+  ['駅で会った', (r) => splitIs(['駅', 'で', '会った'])(r) && textHead(r, '会った') === '会う', '34.3 駅 / で / 会った, not 出会う'],
+  ['かかってこい', firstIs('かかって来い'), '34.1 かかって来い 1st'],
+  ['持ってきた', (r) => firstIs('持ってくる')(r) && rowsOf(r)[0].via === 'past', '34.1 (unchanged) 持ってくる 1st'],
+  ['高かったら', (r) => firstIs('高い')(r) && rowsOf(r)[0].via === 'conditional (-tara)', '34.2 高い 1st, -tara'],
+  ['食べなかったら', (r) => firstIs('食べる')(r) && rowsOf(r)[0].via === 'negative + conditional (-tara)', '34.2 食べる 1st, negative + -tara'],
+  ['行かないで', (r) => firstIs('行く')(r) && rowsOf(r)[0].via === 'without doing (-naide)', '34.2 行く 1st, -naide'],
+  ['tanni', (r) => { const t0 = rowsOf(r).filter((h) => h.tier === 0); return t0.some((h) => isForm(h, '単に')) && t0.some((h) => isForm(h, '単位')); }, '34.4 tanni: 単に and 単位 both exact'],
+  ['konnya', firstIs('今夜'), '34.4 konnya: 今夜 1st'],
+  ['zennin', firstIs('全員'), '34.4 zennin: 全員 1st'],
+  ['honnyaku', firstIs('翻訳'), '34.4 honnyaku: 翻訳 1st'],
+  ['benkyoushita', (r) => firstIs('勉強')(r) && /of 勉強する$/.test(rowsOf(r)[0].note || ''), '34.5 勉強 1st, note "... of 勉強する"'],
+  ['知らねーよ', (r) => splitIs(['知らねー', 'よ'])(r) && textHead(r, '知らねー') === '知る', '34.6 知らねー (知る) / よ'],
+  ['やめろっ！', (r) => splitIs(['やめろ'])(r) && textHead(r, 'やめろ') === '止める', '34.6 やめろ (止める), the final っ is no word'],
+  ['殺しちまった', (r) => firstIs('殺す')(r), '34.6 (unchanged) 殺す 1st'],
+  ['バグってる', (r) => firstIs('バグる')(r) && rowsOf(r)[0].tier === 0, '34.7 バグる 1st, exact (deinflected)'],
+  ['ググった', (r) => firstIs('ググる')(r) && /form of ググる$/.test(rowsOf(r)[0].note || ''), '34.7 ググる 1st, note names ググる'],
+  ['壊れそうな', (r) => firstIs('壊れる')(r), '34.9 壊れる 1st'],
+  ['食べられていなかった', (r) => posOf(r, '食べる') >= 0 && posOf(r, '食べる') <= 1, '34.9 three rules deep: 食べる in the top 2'],
+  ['食べすぎちゃった', (r) => posOf(r, '食べ過ぎる') >= 0 && posOf(r, '食べ過ぎる') <= 1, '34.9 (unchanged) 食べ過ぎる in the top 2'],
+  ['あらん', (r) => { const i = posOf(r, '有る'); return i >= 0 && rowsOf(r)[i].via === "literary volitional (-n, 'will / let us')"; }, '34.10 あらん: 有る as literary volitional, never negative'],
+  ['神の加護があらんことを', (r) => !!groupOf(r, 'text') && textHead(r, 'あらんことを') === 'あらん事を', '34.10 (unchanged) あらんことを is one piece'],
+  ['彼は（昨日買ったばかりの）剣を抜いた', (r) => { const g = groupOf(r, 'text'); const w = g ? g.segments.filter((x) => x.kind === 'word').map((x) => x.text) : []; return w.includes('昨日') && w.includes('買った') && w[0] === '彼'; },
+    '34.11 a clause in brackets stays in the text'],
+  ['ロック', (r) => { const rows = rowsOf(r).filter((h) => { const rec = store.getRecord(h.pack, h.id); return !rec.k && (rec.r || [])[0] === 'ロック'; }); const ids = rows.map((h) => findEntry(store, 'words', 'ロック', 'ロック', addressOrdinal(store, 'words', h.id))); return rows.length >= 2 && new Set(ids).size === rows.length && ids.every((id, i) => id === rows[i].id); },
+    '34.12 every ロック record has its own address (n)'],
+  ['彼は駅で友達に会った。'.repeat(10), (r) => { const g = groupOf(r, 'text'); if (!g || !(g.moreWords > 0)) return false; const all = groupOf(search(store, '彼は駅で友達に会った。'.repeat(10), { phase: 'full', textAll: true }), 'text'); return all.moreWords === 0 && !all.segments.some((x) => x.kind === 'more'); },
+    '34.13 60 words first, textAll lists the rest'],
+  ['リンゴを2つ買った', (r) => splitIs(['リンゴ', 'を', '2つ', '買った'])(r) && textHead(r, '2つ') === '箇', '34.15 2つ is one piece: the counter つ (箇)'],
+  ['1ヶ月後', (r) => splitIs(['1ヶ月', '後'])(r) && textHead(r, '1ヶ月') === 'ヶ月', '34.15 1ヶ月 is one piece: the counter ヶ月'],
+  ['振り帰った', (r) => (r.suggestions || []).some((x) => x.chip === '振り返った'), '34.16 chip 振り返った for the inflected slip'],
+  ['omiage', (r) => firstIs('お土産')(r) && rowsOf(r)[0].note === 'search-only spelling of お土産', '34.17 omiage: お土産 with the search-only note (おみあげ)'],
 ];
+/** "Words in this text" item of one segment. */
+function textItem(r, seg) {
+  const g = groupOf(r, 'text');
+  return g && g.results.find((x) => x.segment === seg);
+}
 /** Headword of the "Words in this text" item of one segment. */
 function textHead(r, seg) {
   const g = groupOf(r, 'text');
@@ -321,7 +363,9 @@ function accept() {
 
 // Rows that cannot pass under the rules as written (SPEC 18: reported, the rule is NOT changed). They are run and
 // printed as KNOWN with the diagnosis, and not counted. Remove a row from here when a ruling changes the outcome.
-const KNOWN = {}; // empty since the coordinator ruling of 2026-11-13: both former rows now expect the actual outcome
+const KNOWN = { // SPEC 34.1 (2026-11-26): the audit's rule fixes the record of いた, not the split
+  '部屋にいた': 'にい matches 新 (さら / あら / にい) at the rank of the written form 新 (P 0), so にい / た (20) is lighter than に / いた (24); no ruling yet',
+};
 
 function bench() {
   for (const q of ['jisho', 'jihso', 'dictonary', 'naiso', 'kaisa', 'ないしよ']) {

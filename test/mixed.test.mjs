@@ -96,7 +96,8 @@ test('31: stripBrackets', () => {
   assert.equal(stripBrackets('嵩（かさ）にきて'), '嵩にきて');
   assert.equal(stripBrackets('｜嵩《かさ》にきて'), '嵩にきて');
   assert.equal(stripBrackets('無職(むしょく)転生(てんせい)'), '無職転生');
-  assert.equal(stripBrackets('a (b (c) d) e'), 'a  e');
+  // SPEC 34.11: only a reading right after a kanji is left out; other brackets stay in the text
+  assert.equal(stripBrackets('a (b (c) d) e'), 'a (b (c) d) e');
   assert.equal(stripBrackets('(かさ)'), '(かさ)'); // nothing would be left: kept as typed
   assert.equal(stripBrackets('嵩(かさ'), '嵩(かさ'); // not closed: kept
   assert.equal(stripBrackets('a|b'), 'a|b'); // the bar goes only together with 《》

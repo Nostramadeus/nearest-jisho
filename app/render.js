@@ -3,7 +3,7 @@ import { POS, MISC, FIELD, DIALECT, NAME_TYPE, SLANG_CODES, label } from './labe
 import { entryAddress, entryHash, usuallyKana } from './search/entry.js';
 import { firstGloss } from './favorites.js';
 import { kanaToRomaji } from './search/romaji.js';
-import { pitchHtml } from './search/pitch.js';
+import { pitchHtml, readingsFor } from './search/pitch.js';
 import { ADDITIONS_SOURCE } from './search/additions.js';
 
 const KANA_ONLY = /^[\p{Script=Hiragana}\p{Script=Katakana}ー・]+$/u;
@@ -26,10 +26,10 @@ const STAR_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="t
  */
 export function starHtml(addr, gloss, on, extraClass = '', shown = '') {
   return `<button type="button" class="star${extraClass ? ' ' + extraClass : ''}" aria-pressed="${on ? 'true' : 'false'}" aria-label="Favorite"` +
-    ` data-w="${esc(addr.w)}" data-r="${esc(addr.r)}" data-p="${esc(addr.p)}" data-g="${esc(gloss || '')}"` +
+    ` data-w="${esc(addr.w)}" data-r="${esc(addr.r)}" data-p="${esc(addr.p)}"${addr.n > 0 ? ` data-n="${addr.n}"` : ''} data-g="${esc(gloss || '')}"` +
     `${shown && shown !== addr.w ? ` data-h="${esc(shown)}"` : ''}>${STAR_SVG}</button>`;
 }
-const isFav = (opts, a) => !!(opts && opts.fav && opts.fav(a.w, a.r, a.p));
+const isFav = (opts, a) => !!(opts && opts.fav && opts.fav(a.w, a.r, a.p, a.n || 0));
 
 export function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -125,9 +125,12 @@ export function headParts(rec, hl) {
   const kf = rec.k || [], rf = rec.r || [];
   const uk = usuallyKana(rec);
   const kanaHead = !kf.length || uk;
-  let head = kanaHead ? (rf[0] || kf[0] || '') : kf[0], reading = kanaHead ? '' : (rf[0] || ''), headMark = null, readMark = null;
+  // SPEC 34.17: the reading line is the first reading by priority (rec.rp, like the entry page) that JMdict allows
+  // with the written form shown (rec.rr, re_restr)
+  const readOf = (k) => readingsFor(rec, k)[0] || '';
+  let head = kanaHead ? (rf[0] || kf[0] || '') : kf[0], reading = kanaHead ? '' : readOf(kf[0]), headMark = null, readMark = null;
   if (hl && hl.space === 'k') {
-    if (kf.includes(hl.form)) { head = hl.form; headMark = -1; reading = rf[0] || ''; }
+    if (kf.includes(hl.form)) { head = hl.form; headMark = -1; reading = readOf(hl.form); }
     else if (rf.includes(hl.form)) {
       if (kanaHead) { head = hl.form; headMark = -1; } else { reading = hl.form; readMark = -1; }
     }
@@ -200,7 +203,7 @@ export function cardHtml(hit, gi, ri, opts = {}) {
     ? `<div class="forms">Other forms: <span lang="ja">${esc([...otherK, ...otherR].join('、'))}</span></div>` : '';
   const link = isWikt && rec.u
     ? `<div class="link"><a href="${esc(rec.u)}" target="_blank" rel="noopener">Open in Wiktionary</a></div>` : '';
-  const addr = entryAddress(hit.pack, rec);
+  const addr = entryAddress(hit.pack, rec, hit.n || 0); // SPEC 34.12
   const href = entryHash(addr);
   const fu = reading ? furigana(head, reading) : null; // SPEC 22: reading over its own kanji; else the plain line
   // SPEC 26.1: romaji of the reading (of the headword when it is kana) under the word; a setting hides it via CSS
@@ -272,7 +275,7 @@ export function entryHtml(d, opts = {}) {
     `${d.romaji ? `<div class="romaji">${esc(d.romaji)}${d.reading ? ` <button type="button" class="say" data-say="${esc(d.reading)}" aria-label="Play the reading" title="Play the reading" hidden>${SAY_SVG}</button>` : ''}</div>` : ''}` +
     `${d.pitch ? `<div class="pitch">${pitchHtml(d.pitch.kana, d.pitch.values)}</div>` : ''}` +
     `<div class="entry-title"><h2 class="entry-word${fu ? ' fu' : ''}" lang="ja">${fu ? rubyHtml(fu, null, null) : esc(head)}</h2>${copyHtml(head)}` +
-    `${starHtml(entryAddress(pack, rec), firstGloss(rec), isFav(opts, entryAddress(pack, rec)), 'entry-star', head)}</div>` +
+    `${starHtml(entryAddress(pack, rec, d.n || 0), firstGloss(rec), isFav(opts, entryAddress(pack, rec, d.n || 0)), 'entry-star', head)}</div>` +
     `${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}</header>`;
   const sec = (title, body) => `<section class="entry-sec"><h3>${title}</h3>${body}</section>`;
   if (!isWikt) {
@@ -308,18 +311,29 @@ export function entryHtml(d, opts = {}) {
 export function groupsHtml(groups, opts = {}) {
   return groups.map((g, gi) => {
     if (g.id === 'text') return textGroupHtml(g, gi, opts);
-    let html = `<section class="group" data-group="${esc(g.id)}"><h2>${esc(g.title)} <span class="count">${g.total}</span></h2>`;
-    let nearShown = false;
-    g.results.forEach((h, ri) => {
-      if (h.tier === 3 && h.via !== 'contains' && !nearShown) {
-        html += '<div class="near">Did you mean</div>';
-        nearShown = true;
-      }
-      html += cardHtml(h, gi, ri, opts);
-    });
-    if (g.total > g.results.length) html += `<button type="button" class="more" data-more="${esc(g.id)}">Show more</button>`;
-    return html + '</section>';
+    const html = `<section class="group" data-group="${esc(g.id)}"><h2>${esc(g.title)} <span class="count">${g.total}</span></h2>`;
+    return html + groupCardsHtml(g, gi, 0, opts) + '</section>';
   }).join('');
+}
+
+/**
+ * Cards of group g from result index `from` on, then its "Show more" button when more results exist. SPEC 34.18:
+ * "Show more" appends this part to the group already on the page (cards above it, and their open toggles, stay).
+ */
+export function groupCardsHtml(g, gi, from = 0, opts = {}) {
+  const isNear = (h) => h.tier === 3 && h.via !== 'contains';
+  let html = '';
+  let nearShown = g.results.slice(0, from).some(isNear);
+  g.results.forEach((h, ri) => {
+    if (ri < from) return;
+    if (isNear(h) && !nearShown) {
+      html += '<div class="near">Did you mean</div>';
+      nearShown = true;
+    }
+    html += cardHtml(h, gi, ri, opts);
+  });
+  if (g.total > g.results.length) html += `<button type="button" class="more" data-more="${esc(g.id)}">Show more</button>`;
+  return html;
 }
 
 export const FAV_EMPTY = 'No favorites yet. Click the star on a word to keep it here.';
@@ -329,7 +343,7 @@ export const FAV_EMPTY = 'No favorites yet. Click the star on a word to keep it 
  * visit; those rows stay, greyed, with an outlined star, so a second click restores them.
  */
 export function favoritesHtml(list, removed = new Set()) {
-  const key = (f) => `${f.w}	${f.r}	${f.p}`;
+  const key = (f) => `${f.w}	${f.r}	${f.p}${f.n > 0 ? `	${f.n}` : ''}`; // SPEC 34.12
   const active = list.filter((f) => !removed.has(key(f))).length;
   let html = `<div class="fav-head"><h2>Favorites (${active})</h2>` +
     `<button type="button" class="copy" data-act="copy-favorites"${active ? '' : ' disabled'}>Copy list</button>` +
@@ -411,8 +425,11 @@ export function textGroupHtml(g, gi, opts = {}) {
     }
     html += '</div>';
   });
+  // SPEC 34.13: the words after the first 60 come on request
+  if (g.moreWords > 0) html += `<button type="button" class="more" data-textmore="1">${esc(TEXT_MORE_BUTTON)} (${g.moreWords})</button>`;
   return html + '</section>';
 }
+export const TEXT_MORE_BUTTON = 'Show more words';
 
 export const READING_LINE = 'Reading given in the text:';
 
@@ -437,7 +454,7 @@ export function functionRowHtml(h) {
   const reading = (rec.r || [])[0] || '';
   const pos = ((rec.s && rec.s[0] && rec.s[0].p) || []).map((x) => label(POS, x)).join(' · ');
   const gloss = rec.s && rec.s[0] && rec.s[0].g ? rec.s[0].g[0] : '';
-  const href = entryHash(entryAddress(h.pack, rec));
+  const href = entryHash(entryAddress(h.pack, rec, h.n || 0));
   return `<a class="fnrow" href="${esc(href)}"><span class="seg" lang="ja">${esc(h.segment)}</span>` +
     `${reading && reading !== h.segment ? ` <span class="kana" lang="ja">${esc(reading)}</span>` : ''}` +
     `${pos ? ` <span class="pos">${esc(pos)}</span>` : ''}${gloss ? ` <span class="info">${esc(gloss)}</span>` : ''}</a>`;

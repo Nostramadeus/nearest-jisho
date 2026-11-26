@@ -1,11 +1,11 @@
 // Search engine (SPEC 4). Pure module: no DOM, no fetch. Works on a PackStore (packs.js).
 
-import { canon, hasKana, romajiToKana, kanaToRomaji, toHiragana, latinRewrite, isKana } from './romaji.js';
+import { canon, hasKana, romajiToKana, kanaToRomaji, toHiragana, latinRewrite, isKana, nnAltCanon } from './romaji.js';
 import { fold } from './fold.js';
 import { prepareQuery, distance, budget, reasonFor, letterMask, popcount, INF, P_LIMITS, pRank } from './cost.js';
 import { kanaVariants, latinVoicedVariants, KANA_LABEL } from './kanavariants.js';
-import { deinflect, posBits, viaNote, isStemLabel } from './deinflect.js';
-import { segmentText, mixedWhole, isFunctionWord, TEXT_MAX_CHARS, TEXT_MIN_CHARS } from './segment.js';
+import { posBits, viaNote, isStemLabel } from './deinflect.js';
+import { segmentText, mixedWhole, isFunctionWord, deinflectAll, wiktPosBits, TEXT_MAX_CHARS, TEXT_MIN_CHARS, SEGMENT_MAX_LEN } from './segment.js';
 import { mixedNote } from './mixed.js';
 
 export const TITLES = {
@@ -21,15 +21,19 @@ export const STOP = new Set('a an the of to in on at for and or by with as is be
 const KANJI_RE = /[㐀-䶿一-鿿豈-﫿々-〇\u{20000}-\u{3134f}]/u;
 const LATIN_RE = /^[\p{Script=Latin}\s'\-]+$/u;
 
+// SPEC 34.11 (a): a round bracket right after a kanji whose content is only kana or only Latin letters (a reading)
+const READING_BRACKET_RE = /([㐀-䶿一-鿿豈-﫿々\u{20000}-\u{3134f}])(?:\((?:[ぁ-ゟ゠-ヿｦ-ﾝ]+|[A-Za-z][A-Za-z '\-]*)\)|（(?:[ぁ-ゟ゠-ヿｦ-ﾝ]+|[A-Za-zＡ-Ｚａ-ｚ][A-Za-zＡ-Ｚａ-ｚ '\-]*)）)/gu;
 /**
- * SPEC 31: round brackets and the text inside them are left out of a query, so a word copied with its furigana
- * (嵩(かさ)にきて) is searched as the word alone (嵩にきて). Also 《...》 with its ｜ start mark (Aozora ruby).
- * Only closed pairs are removed. A query that would become empty is kept as typed.
+ * SPEC 31, narrowed by SPEC 34.11: left out of a query are only (a) a round bracket (half or full width) right after a
+ * kanji whose content is only kana or only Latin letters (furigana: 嵩(かさ)にきて -> 嵩にきて), and (b) Aozora ruby
+ * 《...》 with the ｜ that starts its own ruby run (｜漢字《かんじ》 -> 漢字). A bracket holding a clause (any kanji,
+ * punctuation, or one that follows a non-kanji) stays in the text and is split like the rest. A query that would
+ * become empty is kept as typed.
  */
 export function stripBrackets(q) {
-  let s = String(q), before;
-  do { before = s; s = s.replace(/\([^()]*\)|（[^（）]*）/g, ''); } while (s !== before);
-  if (/《[^《》]*》/.test(s)) s = s.replace(/《[^《》]*》/g, '').replace(/[|｜]/g, '');
+  let s = String(q);
+  s = s.replace(READING_BRACKET_RE, '$1');
+  s = s.replace(/[|｜]([^|｜《》]*)《[^《》]*》/g, '$1').replace(/《[^《》]*》/g, '');
   s = s.trim();
   return s || String(q);
 }
@@ -504,29 +508,53 @@ function writtenContains(store, ctx, pack, q, hits) {
 
 // ---------- deinflection, SPEC 4.8 ----------
 
-function deinflectHits(store, ctx, word, hits, shown = word) {
-  const ks = store.keySpace('words', 'k');
+/**
+ * Deinflected hits of `word` in `pack` (words; SPEC 34.7: also wikt). deinflectAll() also tries a katakana stem as
+ * typed (バグってる -> バグる) and katakana okurigana as hiragana (喰ッタ -> 喰う).
+ */
+function deinflectHits(store, ctx, word, hits, shown = word, pack = 'words') {
+  const ks = store.keySpace(pack, 'k');
   if (!ks || !word) return;
-  for (const cand of deinflect(word)) {
+  const bits = pack === 'wikt' ? wiktPosBits : posBits;
+  for (const cand of deinflectAll(word)) {
     const i = ks.find(cand.form);
     if (i < 0) continue;
     for (const id of ks.idsOf(i)) {
       const old = hits.get(id);
       if (old && old.tier === 0 && !old.via) continue;
-      const rec = store.getRecord('words', id);
+      const rec = store.getRecord(pack, id);
       let ok = false;
       for (const s of rec.s || []) {
-        for (const p of s.p || []) if (posBits(p) & cand.type) { ok = true; break; }
+        for (const p of s.p || []) if (bits(p) & cand.type) { ok = true; break; }
         if (ok) break;
       }
       if (!ok) continue;
-      put(hits, {
-        pack: 'words', id, tier: 0, sub: cand.via.some(isStemLabel) ? 2.5 : 2, cost: 0, via: cand.via.join(' + '), base: cand.form, typed: shown,
+      const hit = {
+        pack, id, tier: 0, sub: cand.via.some(isStemLabel) ? 2.5 : 2, cost: 0, via: cand.via.join(' + '), base: cand.form, typed: shown,
         space: 'k', key: cand.form, keyLen: cand.form.length,
-      });
+      };
+      if (cand.suru) hit.suru = true; // SPEC 34.5: the note names 勉強する
+      put(hits, hit);
     }
   }
 }
+
+/**
+ * SPEC 34.17: a tier-0 hit found only through a search-only spelling (rec.h, SPEC 24: ふいんき, taiku for 体育) is
+ * marked searchOnly: it gets the note "search-only spelling of <word>" and does not close the near-match gate.
+ */
+function markSearchOnly(store, hits) {
+  for (const h of hits.values()) {
+    if (h.tier !== 0 || h.via || h.pack !== 'words' || (h.space !== 'r' && h.space !== 'k')) continue;
+    const rec = store.getRecord(h.pack, h.id);
+    if (!rec.h || !rec.h.length) continue;
+    const shownForms = [...(rec.k || []), ...(rec.r || [])];
+    const same = h.space === 'r' ? (f) => kanaToRomaji(f) === h.key : (f) => f.normalize('NFKC') === h.key;
+    if (shownForms.some(same) || !rec.h.some(same)) continue;
+    h.searchOnly = true;
+  }
+}
+export const SEARCH_ONLY_NOTE = 'search-only spelling of';
 
 // ---------- a word with part typed in kana, SPEC 30 ----------
 
@@ -804,6 +832,7 @@ export function search(store, query, opts = {}) {
     ranking: opts.ranking === 'news' ? 'news' : 'fiction',
     phase: opts.phase === 'full' ? 'full' : 'fast',
     limit: opts.limit || 50,
+    textAll: !!opts.textAll, // SPEC 34.13
     groupLimits: opts.groupLimits || {},
     recent: new Set(recentList),
     recentCanon: new Set(recentList.map((s) => canon(s)).filter(Boolean)),
@@ -823,6 +852,8 @@ export function search(store, query, opts = {}) {
   if (kind === 'kanji') {
     for (const p of jaPacks) writtenT02(store, ctx, p, typed, hits[p], false);
     deinflectHits(store, ctx, typed, hits.words);
+    // SPEC 34.7: a word only the Wiktionary pack has is deinflected too, when the words pack has no tier-0 hit
+    if (has('wikt') && !hasTier0(hits.words)) deinflectHits(store, ctx, typed, hits.wikt, typed, 'wikt');
     if (!hasTier0(hits.words) && !hasTier0(hits.wikt)) mixedHits(store, ctx, typed, hits.words); // SPEC 30
     if (has('names')) writtenT02(store, ctx, 'names', typed, hits.names, false);
     if (ctx.phase === 'full') {
@@ -836,8 +867,11 @@ export function search(store, query, opts = {}) {
     const isKana = kind === 'kana';
     const kanaTyped = isKana ? typed : null;
     const counts = {};
+    // SPEC 34.4: romaji nn before a vowel or y is ambiguous (tanni = たんい or たんに): both readings are searched
+    const cAlt = kind === 'latin' ? nnAltCanon(typed) : null;
     for (const p of [...jaPacks, ...(has('names') ? ['names'] : [])]) {
       counts[p] = readingT012(store, ctx, p, c, kanaTyped, hits[p]);
+      if (cAlt) readingT012(store, ctx, p, cAlt, null, hits[p]);
       if (isKana) writtenT02(store, ctx, p, typed, hits[p], true);
     }
     // study 2.3 / 2.4: spelling variants (ei / ee / e, particle は typed as wa), phase "fast"
@@ -847,11 +881,16 @@ export function search(store, query, opts = {}) {
       for (const p of jaPacks) for (const h of hits[p].values()) if (h.space === 'r' && h.tier <= 1 && !h.label) h.label = LABELS.l;
     }
     // deinflection: kana queries, and Latin queries that convert cleanly to kana
-    if (isKana) deinflectHits(store, ctx, toHiragana(typed), hits.words, typed);
+    const rk = isKana ? null : romajiToKana(typed.toLowerCase().replace(/\s+/g, ''));
+    if (isKana) deinflectHits(store, ctx, typed, hits.words, typed);
     else {
-      const rk = romajiToKana(typed.toLowerCase().replace(/\s+/g, ''));
       if (rk.clean) deinflectHits(store, ctx, rk.kana, hits.words);
+      const ra = cAlt ? romajiToKana(typed.toLowerCase().replace(/\s+/g, ''), { nnBoth: true }) : null;
+      if (ra && ra.clean) deinflectHits(store, ctx, ra.kana, hits.words);
     }
+    // SPEC 34.7: deinflected to a Wiktionary record when the words pack has no tier-0 hit
+    if (has('wikt') && !hasTier0(hits.words) && (isKana || rk.clean)) deinflectHits(store, ctx, isKana ? typed : rk.kana, hits.wikt, isKana ? typed : rk.kana, 'wikt');
+    for (const p of jaPacks) markSearchOnly(store, hits[p]); // SPEC 34.17
     if (ctx.phase === 'full') {
       const len = c.length;
       const t3keys = [];
@@ -866,7 +905,7 @@ export function search(store, query, opts = {}) {
         let commonT0 = false, t012 = 0;
         for (const p of packs) {
           t012 += countTier(hits[p], 2);
-          for (const h of hits[p].values()) if (h.tier === 0 && !h.via && store.isCommon(h.pack, h.id)) { commonT0 = true; }
+          for (const h of hits[p].values()) if (h.tier === 0 && !h.via && !h.searchOnly && store.isCommon(h.pack, h.id)) { commonT0 = true; }
         }
         return !commonT0 || (len >= 5 && t012 < 5);
       };
@@ -931,7 +970,9 @@ export function search(store, query, opts = {}) {
       else if (h.via && h.via !== 'contains') {
         const rec = store.getRecord(h.pack, h.id);
         const head = (rec.k || []).includes(h.base) ? h.base : ((rec.k || [])[0] || h.base);
-        h.note = viaNote(h.typed, head, h.via);
+        h.note = viaNote(h.typed, head + (h.suru ? 'する' : ''), h.via); // SPEC 34.5: 勉強した is the past form of 勉強する
+      } else if (h.searchOnly) { // SPEC 34.17
+        h.note = SEARCH_ONLY_NOTE + ' ' + shownHead(store.getRecord(h.pack, h.id));
       }
       // SPEC 18: every non-exact row shows its reason label
       if (!h.note && (h.tier === 1 || (h.tier === 3 && h.via !== 'contains') || h.label)) {
@@ -1036,22 +1077,40 @@ export function sameReadingKanji(store, ch, max = KANJI_SLIP_PER_POS) {
 /**
  * SPEC 27.1: a query with kanji and no exact key in space k: swap ONE kanji at a time for a kanji with the same
  * reading; keep forms that are shown spellings of words records; best rank first; at most 3 chips.
+ * SPEC 34.16: also inflected forms (振り帰った -> 振り返った, the chip is the swapped text as typed); only for queries
+ * of at most 12 characters that are not themselves an (inflected) word.
  */
 export function kanjiSlipChips(store, query, ranking = 'fiction') {
   const ks = store.keySpace('words', 'k');
   const q = String(query || '').trim().normalize('NFKC');
   if (!ks || !q || !KANJI_RE.test(q) || ks.find(q) >= 0) return [];
   const chars = Array.from(q);
+  // SPEC 34.16: a pasted text is no word typo: queries longer than one word (12 characters) get no slip chips
+  if (chars.length > SEGMENT_MAX_LEN) return [];
+  /** Words records whose shown written form is `form` (SPEC 24), or (SPEC 34.16) its deinflected base form. */
+  const recordsOf = (form) => {
+    const out = [];
+    const shown = (id, f) => (store.getRecord('words', id).k || []).some((x) => x.normalize('NFKC') === f);
+    const ki = ks.find(form);
+    if (ki >= 0) for (const id of ks.idsOf(ki)) if (shown(id, form)) out.push(id);
+    if (out.length) return out;
+    for (const cand of deinflectAll(form)) {
+      const bi = ks.find(cand.form);
+      if (bi < 0) continue;
+      for (const id of ks.idsOf(bi)) {
+        if (!shown(id, cand.form) || out.includes(id)) continue;
+        if ((store.getRecord('words', id).s || []).some((s) => (s.p || []).some((p) => posBits(p) & cand.type))) out.push(id);
+      }
+    }
+    return out;
+  };
+  if (recordsOf(q).length) return []; // the query itself is an inflected word
   const found = new Map(); // form -> { id, rank }
   chars.forEach((ch, i) => {
     if (!KANJI_RE.test(ch)) return;
     for (const c of sameReadingKanji(store, ch)) {
       const form = chars.slice(0, i).join('') + c + chars.slice(i + 1).join('');
-      const ki = ks.find(form);
-      if (ki < 0) continue;
-      for (const id of ks.idsOf(ki)) {
-        const rec = store.getRecord('words', id);
-        if (!(rec.k || []).some((f) => f.normalize('NFKC') === form)) continue; // shown spellings only (SPEC 24)
+      for (const id of recordsOf(form)) {
         const rank = store.rank('words', id, ranking);
         const old = found.get(form);
         if (!old || rank < old.rank || (rank === old.rank && id < old.id)) found.set(form, { id, rank });
@@ -1145,7 +1204,9 @@ export const TEXT_MORE_NOTE = 'Showing the first 60 words.';
  * at the same character); it carries altHead (the split's pieces) unless the item above it is of the same split.
  */
 function textGroup(store, ctx, typed, readings = []) {
-  const { segments, truncated, alts } = segmentText(store, typed, { ranking: ctx.ranking, wordLimit: TEXT_SEGMENTS_MAX });
+  // SPEC 34.13: the first render lists the first 60 words; "Show more words" asks again with ctx.textAll (every word)
+  const max = ctx.textAll ? Infinity : TEXT_SEGMENTS_MAX;
+  const { segments, truncated, alts } = segmentText(store, typed, { ranking: ctx.ranking, wordLimit: max });
   const words = segments.filter((x) => x.kind === 'word');
   if (!words.length) return null;
   // SPEC 32.2: every kanji of a piece that matches no word gets its KANJIDIC entry as a row. Character positions of
@@ -1155,7 +1216,7 @@ function textGroup(store, ctx, typed, readings = []) {
   for (const seg of segments) {
     const chars = Array.from(seg.text);
     if (seg.kind === 'unknown') {
-      chars.forEach((ch, x) => { if (!isKana(ch.codePointAt(0)) && store.kanji(ch)) unknownKanji.push({ at: cursor + x, ch, inShown: shownW < TEXT_SEGMENTS_MAX }); });
+      chars.forEach((ch, x) => { if (!isKana(ch.codePointAt(0)) && store.kanji(ch)) unknownKanji.push({ at: cursor + x, ch, inShown: shownW < max }); });
     } else if (seg.kind === 'word') shownW++;
     cursor += chars.length;
   }
@@ -1176,7 +1237,7 @@ function textGroup(store, ctx, typed, readings = []) {
     if (seg.via) {
       r.base = seg.base;
       const head = (rec.k || []).includes(seg.base) ? seg.base : ((rec.k || [])[0] || seg.base);
-      r.note = viaNote(seg.text, head, seg.via);
+      r.note = viaNote(seg.text, head + (seg.suru ? 'する' : ''), seg.via);
     } else if (seg.rule === 5) { // SPEC 30
       r.base = seg.base;
       r.via = 'mixed';
@@ -1189,7 +1250,7 @@ function textGroup(store, ctx, typed, readings = []) {
   const chosenKeys = new Set();
   let shown = 0;
   for (const seg of segments) {
-    if (seg.kind !== 'word' || shown >= TEXT_SEGMENTS_MAX) continue;
+    if (seg.kind !== 'word' || shown >= max) continue;
     shown++;
     chosenKeys.add(keyOf(seg));
     entries.push({ pos: [seg.start, 0, 0, 0], seg, ai: -1 });
@@ -1244,7 +1305,7 @@ function textGroup(store, ctx, typed, readings = []) {
     if (seg.kind === 'unknown') { // SPEC 32.2: a kanji with a row is a chip of its own
       let run = '';
       for (const ch of Array.from(seg.text)) {
-        const item = shown < TEXT_SEGMENTS_MAX ? itemOf.get(`kanji:${ch}`) : undefined;
+        const item = shown < max ? itemOf.get(`kanji:${ch}`) : undefined;
         if (item === undefined) { run += ch; continue; }
         if (run) { line.push({ kind: 'unknown', text: run }); run = ''; }
         line.push({ kind: 'unknown', text: ch, item });
@@ -1253,16 +1314,17 @@ function textGroup(store, ctx, typed, readings = []) {
       continue;
     }
     if (seg.kind !== 'word') { line.push({ kind: seg.kind, text: seg.text }); continue; }
-    if (shown >= TEXT_SEGMENTS_MAX) { line.push({ kind: 'more', text: seg.text }); continue; }
+    if (shown >= max) { line.push({ kind: 'more', text: seg.text }); continue; }
     shown++;
     line.push({ kind: 'word', text: seg.text, item: itemOf.get(keyOf(seg)) });
   }
   const altLines = alts.map((a) => ({ instead: a.instead, chips: a.segments.map((seg) => ({ text: seg.text, item: itemOf.get(keyOf(seg)) })) }));
   const notes = [TEXT_NOTE];
   if (truncated) notes.push(TEXT_CUT_NOTE);
-  if (words.length > TEXT_SEGMENTS_MAX) notes.push(TEXT_MORE_NOTE);
+  if (words.length > max) notes.push(TEXT_MORE_NOTE);
+  const moreWords = Math.max(0, words.length - max); // SPEC 34.13: words left for the "Show more words" button
   return { id: 'text', title: TITLES.text, note: notes.join(' '), notes, results, total: results.length, dym: null,
-    best: results[0], segments: line, wordCount: words.length, alts: altLines, readings: readLines };
+    best: results[0], segments: line, wordCount: words.length, moreWords, alts: altLines, readings: readLines };
 }
 
 function countTier(map, maxTier) {

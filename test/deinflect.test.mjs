@@ -60,15 +60,15 @@ test('POS tag bits', () => {
   assert.equal(posBits('prt'), 0);
 });
 
-test('negative in -n and -nu (SPEC 28.3)', () => {
-  has('食べん', '食べる', T.V1, 'negative (-n)');
+test('negative in -n and -nu (SPEC 28.3; label SPEC 34.10)', () => {
+  has('食べん', '食べる', T.V1, "negative (-n) or literary volitional (-n, 'will / let us')");
   has('食べぬ', '食べる', T.V1, 'classical negative (-nu)');
-  has('覆さん', '覆す', T.V5, 'negative (-n)');
+  has('覆さん', '覆す', T.V5, "negative (-n) or literary volitional (-n, 'will / let us')");
   has('覆さぬ', '覆す', T.V5, 'classical negative (-nu)');
-  has('知らん', '知る', T.V5, 'negative (-n)');
-  has('買わん', '買う', T.V5, 'negative (-n)');
-  has('来ん', '来る', T.VK, 'negative (-n)');
-  has('せん', 'する', T.VS, 'negative (-n)');
-  has('覆されん', '覆す', T.V5, 'passive + negative (-n)');
+  has('知らん', '知る', T.V5, "negative (-n) or literary volitional (-n, 'will / let us')");
+  has('買わん', '買う', T.V5, "negative (-n) or literary volitional (-n, 'will / let us')");
+  has('来ん', '来る', T.VK, "negative (-n) or literary volitional (-n, 'will / let us')");
+  has('せん', 'する', T.VS, "negative (-n) or literary volitional (-n, 'will / let us')");
+  has('覆されん', '覆す', T.V5, "passive + negative (-n) or literary volitional (-n, 'will / let us')");
   assert.ok(!deinflect('さん').some((x) => x.form === 'す'), 'a bare ending is not a word');
 });
