@@ -1146,10 +1146,11 @@ page tests `test/audit-page.test.mjs`, acceptance rows "34.x" in `tools/query.mj
   exact Wiktionary match, in search when the words pack has no tier-0 hit (エモかった).
 - 34.8 Wiktionary build: a word is dropped only when JMdict has the same written form with the same reading (a
   homophone alone no longer drops it); Japanese Wiktionary also keeps dialect (方言) and colloquial (口語) words, with
-  that label as a tag. Built behind the build flag `--wikt-wide`, which is OFF: the size change could not be measured
-  locally (no dumps on this PC). Every build logs `wikt wide rule (...): would add N records = P% of the current pack`,
-  so the next CI build gives the estimate; turn the flag on only if that is at most 30 %. Code: `wiktKeep()`,
-  `jmdictPairs()` in `build/lib/packs.mjs`.
+  that label as a tag. ON by default since the second ruling of 2026-11-26 (the wikt pack is small next to words and
+  names, and it holds the words JMdict lacks); `--no-wikt-wide` turns it off. The CI build of df4340b (rule off) logged
+  `would add 57719 records (we 14278, wj 43441) = 266% of the current pack` (21,670 records, 6.6 MB). Every build logs
+  the line (`added N records = P% of the old pack` when on). Code: `wiktKeep()`, `jmdictPairs()` in
+  `build/lib/packs.mjs`.
 - 34.9 Deinflection goes up to 3 chained rules (食べられていなかった, 食べすぎちゃった, 読ませたくなかった). Masu-stem
   -sou na / -sou ni (also after i-adjectives: 嬉しそうに), -nikui, -yasui, -ppanashi.
 - 34.10 Irrealis + ん is labelled "negative (-n) or literary volitional (-n, 'will / let us')"; for ある (有る, 在る)
@@ -1183,3 +1184,16 @@ page tests `test/audit-page.test.mjs`, acceptance rows "34.x" in `tools/query.mj
   entries pushed without a user gesture there, so it could be false while the page had steps and the app closed).
   Replaces the canGoBack rule of 33.2.
 - Speed (node, PC, real packs, 2026-11-26): 96-character text 48 ms, 500 characters 135 to 140 ms (30.4: 94 to 139 ms).
+- 34.20 (second ruling, 2026-11-26) A kana-only piece that matches a words record with a written form, whose first sense
+  is not tagged uk, through a reading that is not the record's first reading, weighs 8 more in the splitter
+  (`KANA_READING_EXTRA`). Does NOT fix 部屋にいた: 新 (さら / あら / にい) has uk on its first sense. Checked: without
+  the uk condition the split is 部屋 / に / いた and every acceptance row passes; that change needs the owner's ruling.
+- 34.21 (second ruling) Counters JMdict does not tag, used only right after a number (ASCII or full-width digits, or the
+  kanji numerals 一 to 九, 十, 百, 千): 分 (ふん / ぷん), 秒, 時, 時間, 日, 週, 週間, ヶ月 / か月 / カ月, 月, 年, 年間,
+  人, 回, 個, 本, 枚, 円, 歳 / 才, 階, 匹, 冊, 台, 度, 番, 件, 杯, 点, 着 (`COUNTER_READINGS` in `segment.js`, each with its
+  counter reading). The piece points at the record of that written form with that reading (a ctr sense first), and
+  its row carries the note `counter`. Sound changes (いっぷん, さんぼん) are not shown: the base counter is. A number +
+  counter piece competes with words by weight: 十分 (enough) and 三人 stay words where they are lighter. 10分 = 分 (ふん).
+- 34.22 English corrections (4.9): the hits of the best correction (the did-you-mean one) come before those of the next
+  corrections (`sub` = the correction's place). Found when the rebuilt data (JMdict 2026-11-23) ranked 必死 (for
+  "desperate") above 離す for seperate; acceptance row #41.

@@ -18,11 +18,12 @@ const ALL = ['words', 'names', 'kanji', 'wikt', 'sent', 'pitch']; // pitch reads
 
 function parseArgs(argv) {
   let only = ALL;
-  let wiktWide = false; // SPEC 34.8: --wikt-wide keeps the wider Wiktionary rule (off by default)
+  let wiktWide = true; // SPEC 34.8: the wider Wiktionary rule is ON (ruling 2026-11-26); --no-wikt-wide turns it off
   if (argv.length === 1 && argv[0] === '--rehash') return { only: [], rehash: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--wikt-wide') wiktWide = true;
+    else if (a === '--no-wikt-wide') wiktWide = false;
     else if (a === '--only') only = argv[++i].split(',');
     else if (a.startsWith('--only=')) only = a.slice(7).split(',');
     else throw new Error(`unknown argument ${a}`);

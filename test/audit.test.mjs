@@ -59,6 +59,12 @@ const WORDS = [
   [{ k: ['振り'], r: ['ふり'], c: 1, s: [N(['n'], ['swing'])] }, 3000, 3000],
   [{ k: ['帰る'], r: ['かえる'], c: 1, s: [N(['v5r', 'vi'], ['to return'])] }, 200, 200],
   [{ k: ['太鼓'], r: ['たいこ'], c: 1, s: [N(['n'], ['drum'])] }, 9000, 9000],
+  [{ k: ['新'], r: ['しん', 'にい'], c: 1, s: [N(['n'], ['new'])] }, 563, 563], // 39: SPEC 34.20
+  [{ r: ['に'], c: 1, s: [N(['prt'], ['in, at'])] }, 5, 5],
+  [{ k: ['分'], r: ['ぶん'], c: 1, s: [N(['n', 'n-suf'], ['part'])] }, 504, 504], // 41: SPEC 34.21
+  [{ k: ['分'], r: ['ふん'], c: 1, s: [N(['n'], ['minute (unit of time)'])] }, 1665, 1665],
+  [{ k: ['人'], r: ['にん'], c: 1, s: [N(['ctr'], ['counter for people'])] }, 1346, 1346],
+  [{ k: ['十分'], r: ['じゅうぶん'], c: 1, s: [N(['adj-na'], ['enough'])] }, 300, 300],
 ];
 const WIKT = [
   [{ src: 'wj', k: ['エモい'], r: ['エモい'], s: [{ p: ['形容詞'], g: ['感情が揺さぶられる'], m: ['若者言葉'] }] }, 999999, 999999],
@@ -290,4 +296,23 @@ test('34.14 warm-up in slices builds the same indexes as warm()', async () => {
     assert.deepEqual(Array.from(r1._fold.bidx), Array.from(r0._fold.bidx));
     assert.deepEqual(Array.from(r1.masks()), Array.from(r0.masks()));
   } finally { rmSync(dir2, { recursive: true, force: true }); }
+});
+
+test('34.20 a kana piece that is a later reading of a non-uk kanji word weighs 8 more: にいた = に / いた', () => {
+  assert.deepEqual(words('にいた').map((x) => x.text), ['に', 'いた']);
+  assert.equal(head('words', words('にいた')[1].id), '居る');
+  assert.equal(words('にい')[0].weight, 10 + 0 + 8, 'にい = 新 (P 0) + 8');
+  assert.equal(words('しん')[0].weight, 10, 'the first reading: no extra');
+});
+
+test('34.21 counters after a number: the listed counter reading; kanji numerals too', () => {
+  const w = words('10分');
+  assert.deepEqual(w.map((x) => x.text), ['10分']);
+  assert.equal(store.getRecord('words', w[0].id).r[0], 'ふん', '分 = ふん (minute), not ぶん');
+  assert.equal(w[0].counter, '分');
+  const k = words('三人');
+  assert.deepEqual(k.map((x) => [x.text, head('words', x.id)]), [['三人', '人']]);
+  assert.deepEqual(words('十分').map((x) => [x.text, store.getRecord('words', x.id).r[0]]), [['十分', 'じゅうぶん']], 'a word wins over number + counter');
+  const g = group(full('林檎を10分'), 'text');
+  assert.equal(g.results.find((h) => h.segment === '10分').note, 'counter');
 });

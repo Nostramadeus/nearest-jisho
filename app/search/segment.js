@@ -144,6 +144,19 @@ function choose(store, cands, ranking) {
 }
 
 export const UNKNOWN_WEIGHT = 40;
+/**
+ * SPEC 34.20: extra weight of a kana-only piece that matches a words record with a written (kanji) form, whose first
+ * sense is not tagged uk (usually kana), through a reading that is not the record's first reading (にい for 新 = さら /
+ * あら / にい: the record's frequency belongs to its written form, not to this kana spelling).
+ */
+export const KANA_READING_EXTRA = 8;
+function laterKanaReading(store, c, s) {
+  if (c.pack !== 'words' || !allKana(s)) return false;
+  const rec = store.getRecord(c.pack, c.id);
+  if (!rec.k || !rec.k.length || !rec.r || !rec.r.length) return false;
+  if (((rec.s && rec.s[0] && rec.s[0].m) || []).includes('uk')) return false;
+  return toHiragana(rec.r[0]) !== toHiragana(s);
+}
 // SPEC 19.1: + 4 deinflection only, + 6 wikt only, + 8 names only; SPEC 30: + 8 part typed in kana
 const EXTRA = { 1: 0, 2: 4, 3: 6, 4: 8, 5: 8 };
 
@@ -284,10 +297,46 @@ function suffixAfterNoun(store, path) {
 export const isDigit = (ch) => /^[0-9０-９]$/.test(ch);
 /** SPEC 34.6: a run-final glottal stop or lengthening mark (やめろっ, 待ってー) is a separator when no word takes it. */
 const TAIL_RE = /^[っッーｰ〜～]+$/;
-/** SPEC 34.15: the counter records of a counter text: a sense tagged ctr, best rank first. */
+/** SPEC 34.15 / 34.21: kanji numerals that start a number + counter piece like digits do (三人, 十分 -> also 十 + 分). */
+export const KANJI_NUMERALS = new Set(Array.from('一二三四五六七八九十百千'));
+/**
+ * SPEC 34.21: counters JMdict does not tag as ctr (or tags only on another reading), used only right after a number:
+ * counter -> its counter reading(s). The piece points at the record of that written form with that reading.
+ */
+export const COUNTER_READINGS = {
+  分: ['ふん', 'ぷん'], 秒: ['びょう'], 時: ['じ'], 時間: ['じかん'], 日: ['にち'], 週: ['しゅう'], 週間: ['しゅうかん'],
+  ヶ月: ['かげつ'], か月: ['かげつ'], カ月: ['かげつ'], 月: ['がつ'], 年: ['ねん'], 年間: ['ねんかん'], 人: ['にん'],
+  回: ['かい'], 個: ['こ'], 本: ['ほん'], 枚: ['まい'], 円: ['えん'], 歳: ['さい'], 才: ['さい'], 階: ['かい'], 匹: ['ひき'],
+  冊: ['さつ'], 台: ['だい'], 度: ['ど'], 番: ['ばん'], 件: ['けん'], 杯: ['はい'], 点: ['てん'], 着: ['ちゃく'],
+};
+export const COUNTER_NOTE = 'counter';
+/**
+ * SPEC 34.15 / 34.21: the counter records of a counter text after a number. A counter of the list above: the records
+ * of that written form with a listed reading (a ctr sense first, then rank); none (or not listed): the records with a
+ * sense tagged ctr.
+ */
 function counterCands(store, s) {
-  return exact(store, 'words', s).filter((id) => (store.getRecord('words', id).s || []).some((x) => (x.p || []).includes('ctr')))
-    .map((id) => ({ pack: 'words', id, rule: 1 }));
+  const ids = exact(store, 'words', s);
+  const isCtr = (id) => (store.getRecord('words', id).s || []).some((x) => (x.p || []).includes('ctr'));
+  const listed = COUNTER_READINGS[s];
+  if (listed) {
+    const withReading = ids.filter((id) => (store.getRecord('words', id).r || []).some((r) => listed.includes(toHiragana(r))));
+    if (withReading.length) return withReading.map((id) => ({ pack: 'words', id, rule: 1, ord: isCtr(id) ? 0 : 1 }));
+  }
+  return ids.filter(isCtr).map((id) => ({ pack: 'words', id, rule: 1 }));
+}
+/** Edges number + counter from position k of the run (the number is numLen characters long). */
+function counterEdges(store, chars, from, k, numLen, n, ranking, edges) {
+  const num = chars.slice(from + k, from + k + numLen).join('');
+  for (let m = 1; m <= COUNTER_MAX_LEN && k + numLen + m <= n; m++) {
+    const ctr = chars.slice(from + k + numLen, from + k + numLen + m).join('');
+    const cands = counterCands(store, ctr);
+    if (!cands.length) continue;
+    const sorted = choose(store, cands, ranking);
+    const best = sorted[0];
+    const w = 10 + pRank(store.rank(best.pack, best.id, ranking));
+    edges[k].push({ L: numLen + m, w, seg: { kind: 'word', text: num + ctr, start: from + k, end: from + k + numLen + m, pack: best.pack, id: best.id, rule: 1, others: sorted.length - 1, weight: w, counter: ctr } });
+  }
 }
 export const COUNTER_MAX_LEN = 4;
 export const DIGITS_WEIGHT = 10;
@@ -302,15 +351,7 @@ function runEdges(store, chars, from, to, ranking, digits = 0) {
   const edges = Array.from({ length: n }, () => []);
   if (digits) {
     const num = chars.slice(from, from + digits).join('');
-    for (let m = 1; m <= COUNTER_MAX_LEN && digits + m <= n; m++) {
-      const ctr = chars.slice(from + digits, from + digits + m).join('');
-      const cands = counterCands(store, ctr);
-      if (!cands.length) continue;
-      const sorted = choose(store, cands, ranking);
-      const best = sorted[0];
-      const w = 10 + pRank(store.rank(best.pack, best.id, ranking));
-      edges[0].push({ L: digits + m, w, seg: { kind: 'word', text: num + ctr, start: from, end: from + digits + m, pack: best.pack, id: best.id, rule: 1, others: sorted.length - 1, weight: w, counter: ctr } });
-    }
+    counterEdges(store, chars, from, 0, digits, n, ranking, edges);
     edges[0].push({ L: digits, w: DIGITS_WEIGHT, seg: { kind: 'sep', text: num } });
     for (let k = 1; k < digits; k++) edges[k].push({ L: 1, w: UNKNOWN_WEIGHT, seg: { kind: 'unknown', text: chars[from + k] } });
   }
@@ -336,6 +377,12 @@ function runEdges(store, chars, from, to, ranking, digits = 0) {
   let tailAt = n;
   while (tailAt > 0 && TAIL_RE.test(chars[from + tailAt - 1])) tailAt--;
   for (let k = digits; k < n; k++) {
+    // SPEC 34.21: a kanji numeral sequence (三, 十二) followed by a counter: number + counter edges, competing with words
+    if (KANJI_NUMERALS.has(chars[from + k]) && (k === 0 || !KANJI_NUMERALS.has(chars[from + k - 1]))) {
+      let e = k;
+      while (e < n && KANJI_NUMERALS.has(chars[from + e])) e++;
+      counterEdges(store, chars, from, k, e - k, n, ranking, edges);
+    }
     // SPEC 34.6: the run-final tail as a separator (weight 0)
     if (k > digits && k === tailAt) edges[k].push({ L: n - k, w: 0, seg: { kind: 'sep', text: chars.slice(from + k, to).join('') } });
     const maxL = Math.min(SEGMENT_MAX_LEN, n - k);
@@ -346,8 +393,10 @@ function runEdges(store, chars, from, to, ranking, digits = 0) {
       const sorted = choose(store, cands, ranking);
       const best = sorted[0];
       const oneKanaFn = L === 1 && allKana(s);
-      // SPEC 34.3: a partly-kana (rule 5) or Wiktionary (rule 3) word that is also deinflected adds the +4 of rule 2
-      const w = oneKanaFn ? 10 : 10 + pRank(store.rank(best.pack, best.id, ranking)) + EXTRA[best.rule] + ((best.rule === 5 || best.rule === 3) && best.via ? EXTRA[2] : 0);
+      // SPEC 34.3: a partly-kana (rule 5) or Wiktionary (rule 3) word that is also deinflected adds the +4 of rule 2.
+      // SPEC 34.20: a kana piece that is a later reading of a kanji word not usually written in kana adds KANA_READING_EXTRA.
+      const w = oneKanaFn ? 10 : 10 + pRank(store.rank(best.pack, best.id, ranking)) + EXTRA[best.rule] + ((best.rule === 5 || best.rule === 3) && best.via ? EXTRA[2] : 0)
+        + (best.rule === 1 && laterKanaReading(store, best, s) ? KANA_READING_EXTRA : 0);
       const seg = { kind: 'word', text: s, start: from + k, end: from + k + L, pack: best.pack, id: best.id, rule: best.rule, others: sorted.length - 1, weight: w };
       if (best.via) { seg.via = best.via; seg.base = best.base; if (best.suru) seg.suru = true; }
       if (best.rule === 5) { seg.base = best.base; seg.cands = sorted; } // SPEC 30: every record of this reading

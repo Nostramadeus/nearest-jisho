@@ -322,6 +322,9 @@ const STUDY = [
     '34.13 60 words first, textAll lists the rest'],
   ['リンゴを2つ買った', (r) => splitIs(['リンゴ', 'を', '2つ', '買った'])(r) && textHead(r, '2つ') === '箇', '34.15 2つ is one piece: the counter つ (箇)'],
   ['1ヶ月後', (r) => splitIs(['1ヶ月', '後'])(r) && textHead(r, '1ヶ月') === 'ヶ月', '34.15 1ヶ月 is one piece: the counter ヶ月'],
+  ['10分待った', (r) => splitIs(['10分', '待った'])(r) && store.getRecord('words', textItem(r, '10分').id).r[0] === 'ふん' && textItem(r, '10分').note === 'counter', '34.21 10分 = 分 (ふん, minute), labelled counter'],
+  ['三人の男', (r) => splitIs(['三人', 'の', '男'])(r), '34.21 三人 stays one piece'],
+  ['十分だ', (r) => splitIs(['十分', 'だ'])(r) && textHead(r, '十分') === '十分', '34.21 十分 (enough) is not 10 minutes'],
   ['振り帰った', (r) => (r.suggestions || []).some((x) => x.chip === '振り返った'), '34.16 chip 振り返った for the inflected slip'],
   ['omiage', (r) => firstIs('お土産')(r) && rowsOf(r)[0].note === 'search-only spelling of お土産', '34.17 omiage: お土産 with the search-only note (おみあげ)'],
 ];
@@ -364,7 +367,7 @@ function accept() {
 // Rows that cannot pass under the rules as written (SPEC 18: reported, the rule is NOT changed). They are run and
 // printed as KNOWN with the diagnosis, and not counted. Remove a row from here when a ruling changes the outcome.
 const KNOWN = { // SPEC 34.1 (2026-11-26): the audit's rule fixes the record of いた, not the split
-  '部屋にいた': 'にい matches 新 (さら / あら / にい) at the rank of the written form 新 (P 0), so にい / た (20) is lighter than に / いた (24); no ruling yet',
+  '部屋にいた': 'にい matches 新 (さら / あら / にい, P 0). The SPEC 34.20 extra (+8) applies only to words NOT tagged uk, and 新 has uk on its first sense, so にい / た (20) stays lighter than に / いた (24). Without the uk condition: 部屋 / に / いた and every other row passes (checked 2026-11-26)',
 };
 
 function bench() {

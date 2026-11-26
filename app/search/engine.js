@@ -5,7 +5,7 @@ import { fold } from './fold.js';
 import { prepareQuery, distance, budget, reasonFor, letterMask, popcount, INF, P_LIMITS, pRank } from './cost.js';
 import { kanaVariants, latinVoicedVariants, KANA_LABEL } from './kanavariants.js';
 import { posBits, viaNote, isStemLabel } from './deinflect.js';
-import { segmentText, mixedWhole, isFunctionWord, deinflectAll, wiktPosBits, TEXT_MAX_CHARS, TEXT_MIN_CHARS, SEGMENT_MAX_LEN } from './segment.js';
+import { segmentText, mixedWhole, isFunctionWord, deinflectAll, wiktPosBits, COUNTER_NOTE, TEXT_MAX_CHARS, TEXT_MIN_CHARS, SEGMENT_MAX_LEN } from './segment.js';
 import { mixedNote } from './mixed.js';
 
 export const TITLES = {
@@ -776,16 +776,17 @@ function englishSide(store, ctx, query, packs) {
     fz0 = fz;
     if (fz) {
       dym = fz.dym;
-      for (const q of fz.queries) {
+      fz.queries.forEach((q, qi) => {
         const qn2 = normQuery(q.join(' '));
         for (const pack of packs) {
           for (const h of englishMatch(store, ctx, pack, q, qn2, 3).values()) {
             h.label = fz.dym.reason;
+            h.sub = qi; // SPEC 34.22: hits of the best correction (the did-you-mean one) before those of the next ones
             const old = res[pack].get(h.id);
             if (!old || better(h, old)) res[pack].set(h.id, h);
           }
         }
-      }
+      });
     }
   }
   return { res, dym, corrections: fz0 ? fz0.queries : [] };
@@ -1243,6 +1244,7 @@ function textGroup(store, ctx, typed, readings = []) {
       r.via = 'mixed';
       r.note = mixedNote(seg.text, seg.base);
     }
+    if (seg.counter) r.note = COUNTER_NOTE; // SPEC 34.21: number + counter
     return r;
   };
   // Order (29.3): every word by the character it starts at; at the same character the chosen word first.

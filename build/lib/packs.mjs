@@ -348,7 +348,7 @@ export const JA_WIDE_LABEL_RE = /方言|口語/;
  * SPEC 2.1 / 34.8: is a Wiktionary entry kept? `slang`: it has a slang-type label; `labelled`: (ja) a 方言 / 口語 label.
  * Old rule (wide = false): English entries are kept when slang or "missing" (neither the headword nor any of its
  * readings is a JMdict form); Japanese entries only when slang.
- * Wide rule (SPEC 34.8, build flag --wikt-wide): kept when slang, labelled, or when JMdict has no record with the same
+ * Wide rule (SPEC 34.8, ON by default; build flag --no-wikt-wide turns it off): kept when slang, labelled, or when JMdict has no record with the same
  * written form AND the same reading (an entry without readings: the same written form). A homophone alone no longer
  * drops a word (魔導師 is kept although JMdict has まどうし for 魔道士).
  */
@@ -360,7 +360,7 @@ export function wiktKeep({ src, hw, readings, slang, labelled }, { forms, pairs,
   return !readings.some((x) => pairs.has(nfkc(hw) + '\t' + toHiragana(nfkc(x))));
 }
 
-export async function buildWikt({ romaji, jiten, wide = false }) {
+export async function buildWikt({ romaji, jiten, wide = true }) {
   const forms = jmdictForms();
   // SPEC 34.8: the wide rule needs the JMdict form + reading pairs; they are also read when the flag is off, so the
   // build log reports how many records the wide rule would add
@@ -482,7 +482,7 @@ export async function buildWikt({ romaji, jiten, wide = false }) {
   log(`wikt: ${res.n} records (we ${stats.we.kept}: slang ${stats.we.bySlang}, not in JMdict ${stats.we.byMissing}; wj ${stats.wj.kept}), ${mb(res.bytes)} (${res.layout})`);
   // SPEC 34.8: size estimate of the wide rule (records it keeps that the old rule drops)
   const extra = wideExtra.we + wideExtra.wj;
-  log(`wikt wide rule (--wikt-wide, ${wide ? 'ON' : 'off'}): ${wide ? 'added' : 'would add'} ${extra} records (we ${wideExtra.we}, wj ${wideExtra.wj}) = ${res.n ? Math.round((extra / (wide ? res.n - extra : res.n)) * 100) : 0}% of the ${wide ? 'old' : 'current'} pack`);
+  log(`wikt wide rule (${wide ? 'ON' : 'off: --no-wikt-wide'}): ${wide ? 'added' : 'would add'} ${extra} records (we ${wideExtra.we}, wj ${wideExtra.wj}) = ${res.n ? Math.round((extra / (wide ? res.n - extra : res.n)) * 100) : 0}% of the ${wide ? 'old' : 'current'} pack`);
   stats.wide = { on: wide, ...wideExtra };
   return { ...res, wiktStats: stats };
 }
